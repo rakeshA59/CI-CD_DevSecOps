@@ -1,0 +1,12 @@
+# Python-based scanner CLIs. They go into their OWN venv (cip-api\.scanners), never into the API's .venv:
+# semgrep pins old opentelemetry / protobuf / mcp versions that break fastapi and the Google / LangChain packages.
+#
+#   python -m venv .scanners
+#   .scanners\Scripts\pip install -r requirements-scanners.txt
+#
+# CIP finds them there automatically. The single-binary scanners (gitleaks, trivy, osv-scanner, trufflehog, snyk,
+# CodeQL) are downloaded by:  .venv\Scripts\python scripts\install_scanners.py
+semgrep>=1.140      # SAST, all languages
+bandit>=1.8         # Python SAST
+ruff>=0.6           # Python lint / bug patterns
+pip-audit>=2.7      # Python dependency CVEs

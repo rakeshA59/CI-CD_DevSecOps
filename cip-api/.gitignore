@@ -1,0 +1,8 @@
+.env
+runs/
+stream_events.db*
+__pycache__/
+.cip-venv/
+.venv/
+venv/
+.scanners/

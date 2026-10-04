@@ -1,0 +1,159 @@
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
+import { Bot, FolderGit2, Loader2, Play, ShieldCheck } from 'lucide-react';
+import { Button } from '@/shared/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/shared/ui/card';
+import { Input } from '@/shared/ui/input';
+import { Label } from '@/shared/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/ui/select';
+import { Switch } from '@/shared/ui/switch';
+import { getProviders } from '@/features/settings/services/LlmService';
+import { getScanners, startPipeline } from '../services/PipelineService';
+
+const OPTIONS = [
+    ['run_tests', 'Unit tests'],
+    ['containerize', 'Containerise'],
+    ['deploy', 'Deploy to dev + functional tests'],
+    ['continue_on_fail', 'Continue when a gate fails'],
+];
+
+export default function StartRunCard() {
+    const navigate = useNavigate();
+    const [source, setSource] = useState('');
+    const [branch, setBranch] = useState('');
+    const [providers, setProviders] = useState([]);
+    const [provider, setProvider] = useState('');
+    const [options, setOptions] = useState({ run_tests: true, containerize: true, deploy: true, continue_on_fail: true });
+    const [starting, setStarting] = useState(false);
+    const [scanners, setScanners] = useState([]);
+    const [picked, setPicked] = useState(null); // null = automatic (by the repo's languages)
+
+    useEffect(() => {
+        getScanners()
+            .then((res) => setScanners(res.scanners))
+            .catch(() => {});
+        getProviders()
+            .then((res) => {
+                setProviders(res.providers);
+                setProvider(res.default);
+            })
+            .catch((e) => toast.error(`cip-api not reachable: ${e.message}`));
+    }, []);
+
+    const start = async () => {
+        if (!source.trim()) return toast.error('Enter a GitHub URL, org/repo or a local folder path');
+        setStarting(true);
+        try {
+            const res = await startPipeline(source.trim(), branch.trim(), provider, { ...options, scanners: picked });
+            toast.success('Pipeline started');
+            navigate(`/runs/${res.task_id}`);
+        } catch (e) {
+            toast.error(e.message);
+        } finally {
+            setStarting(false);
+        }
+    };
+
+    const selected = providers.find((p) => p.id === provider);
+
+    return (
+        <Card>
+            <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                    <FolderGit2 className="size-5 text-primary" /> Run the pipeline
+                </CardTitle>
+                <CardDescription>
+                    The planner agent reads the repository and derives the stages; build, test, scan, container and deploy agents
+                    do the rest.
+                </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+                <div className="grid gap-3 md:grid-cols-[1fr_200px]">
+                    <div className="space-y-1.5">
+                        <Label htmlFor="source">Repository</Label>
+                        <Input
+                            id="source"
+                            placeholder="https://github.com/org/repo · org/repo · C:\path\to\local\repo"
+                            value={source}
+                            onChange={(e) => setSource(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && start()}
+                        />
+                    </div>
+                    <div className="space-y-1.5">
+                        <Label htmlFor="branch">Branch (optional)</Label>
+                        <Input id="branch" placeholder="main" value={branch} onChange={(e) => setBranch(e.target.value)} />
+                    </div>
+                </div>
+                <div className="grid gap-3 md:grid-cols-[320px_1fr] md:items-end">
+                    <div className="space-y-1.5">
+                        <Label className="flex items-center gap-1.5">
+                            <Bot className="size-4" /> LLM provider for the agents
+                        </Label>
+                        <Select value={provider} onValueChange={setProvider}>
+                            <SelectTrigger className="w-full">
+                                <SelectValue placeholder="Choose a provider" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {providers.map((p) => (
+                                    <SelectItem key={p.id} value={p.id} disabled={!p.configured && p.id !== 'none'}>
+                                        {p.label}
+                                        {p.model ? ` · ${p.model}` : ''}
+                                        {!p.configured && p.id !== 'none' ? ' (not configured)' : ''}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                        {selected?.id === 'none'
+                            ? 'Rules only: no agent reasoning – the planner uses file detection, failed builds are not investigated and no tests are written.'
+                            : 'The agents plan the pipeline, investigate failed builds, write tests when a repo has none, triage findings and explain the result.'}
+                    </p>
+                </div>
+                <div className="flex flex-wrap gap-x-6 gap-y-3">
+                    {OPTIONS.map(([key, label]) => (
+                        <label key={key} className="flex cursor-pointer items-center gap-2 text-sm">
+                            <Switch checked={options[key]} onCheckedChange={(v) => setOptions((o) => ({ ...o, [key]: v }))} />
+                            {label}
+                        </label>
+                    ))}
+                </div>
+                <div className="space-y-2 rounded-md border p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                        <Label className="flex items-center gap-1.5">
+                            <ShieldCheck className="size-4" /> Security scanners
+                        </Label>
+                        <label className="flex cursor-pointer items-center gap-2 text-xs">
+                            <Switch checked={picked === null} onCheckedChange={(auto) => setPicked(auto ? null : scanners.filter((s) => s.installed && s.configured).map((s) => s.name))} />
+                            Automatic – by the repo&apos;s languages
+                        </label>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                        {scanners.map((s) => {
+                            const on = picked === null ? null : picked.includes(s.name);
+                            const note = !s.configured ? 'not configured' : !s.installed ? 'not installed – Docker fallback' : '';
+                            return (
+                                <button
+                                    key={s.name}
+                                    type="button"
+                                    disabled={picked === null}
+                                    title={`${s.category} · runs by default when: ${s.default_when}${note ? ` · ${note}` : ''}`}
+                                    onClick={() => setPicked((p) => (p.includes(s.name) ? p.filter((n) => n !== s.name) : [...p, s.name]))}
+                                    className={`rounded-full border px-2.5 py-1 text-xs ${on ? 'border-primary bg-primary/10 text-primary' : 'text-muted-foreground'} ${note ? 'border-dashed' : ''} disabled:cursor-default`}
+                                >
+                                    {s.label}
+                                    {note && <span className="ml-1 opacity-70">({note})</span>}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+                <Button onClick={start} disabled={starting} className="gap-2">
+                    {starting ? <Loader2 className="size-4 animate-spin" /> : <Play className="size-4" />}
+                    Run pipeline
+                </Button>
+            </CardContent>
+        </Card>
+    );
+}
