@@ -71,6 +71,37 @@ npm run dev
 ```
 `mongo_db_url="memory://"` runs without MongoDB (runs are lost on restart).
 
+## Two modes: Quick run and Guided DevOps flow
+
+The start page has a switch. **Quick run** is the original fixed flow (unchanged). **Guided DevOps flow** is the
+Architect's flow, run locally:
+
+```
+checkout → understand the tech stack → questionnaire (⏸ you answer) → derive the pipeline (stages + tools + MCP)
+→ security scan → build · unit tests · package · containerise (per component, parallel, self-healing)
+→ release to the local registry (localhost:5000) → deploy dev → functional tests → publish test results
+→ approval (⏸ approve / reject) → deploy UAT → final report + PDF
+```
+
+| Piece | Where |
+|---|---|
+| Questionnaire + stage catalogue (what is asked, which stages / tools / MCP server, why) | `config/devops_flow.yml` |
+| Graph (LangGraph `interrupt()` pauses, in-memory checkpointer, thread = task id) | `graph_builders/guided_graph_builder.py` |
+| Discovery + questionnaire (pre-filled from the code: languages, Dockerfiles, CI / k8s / Terraform files) | `agents/questionnaire_agent.py` |
+| Pipeline designer – deterministic, no LLM | `agents/pipeline_designer_agent.py` |
+| Release to registry (`docker_registry`, `docker_push` on the Docker MCP) | `agents/release_agent.py` |
+| Publish test results (JUnit XML + HTML) | `agents/publish_tests_agent.py` |
+| Human approval before UAT | `agents/approval_gate_agent.py` |
+| UAT deploy (own network + ports, left running) | `DeployAgent("uat")` |
+| Self-healing loop (read log → fix → retry, `self_heal_attempts` times) | build, test-setup and Docker-image steps; guided flow also: image CVEs (harden the Dockerfile → rebuild → rescan) and dev deploy (read the container log → fix port / CMD / binding → redeploy) |
+| UI browser tests (Selenium, headless Chrome): pages render, no console errors, navigation, forms, LLM user journeys, a screenshot per test | `agents/ui_test_agent.py` – needs Chrome on the machine |
+| Test-case explanations (what it is about · what it checks · how · expected · actual · why) | `utils/test_explain.py`, functional + UI agents; shown under each test in the UI, `test-report.html` and the PDF |
+| Stage reports (what · where · how · why · result · suggestions · blockers) | `utils/stage_reports.py` – every step, both modes, also in the PDF |
+| Common dashboard | `GET /pipelines/dashboard`, page **Dashboard** |
+
+Answers like GitLab / Jenkins / AWS / Azure / Kubernetes are recorded (marked *later*) – everything runs locally in
+this version. A paused run lives in the API's memory: restarting the API loses runs that wait for answers or approval.
+
 ## Security scanners
 
 | Category | Scanner | Runs by default when | Installed by |
@@ -100,6 +131,10 @@ API's `.venv` it downgrades them and breaks FastAPI and the Google / LangChain p
 | POST | /pipelines/start | `{source, branch, llm_provider, options}` → task_id |
 | GET | /pipelines | recent runs (date/time, local folder or git repo, result) |
 | GET | /pipelines/scanners | scanner catalogue + what is installed / configured |
+| GET | /pipelines/dashboard | common dashboard: totals + every run with its stage statuses |
+| POST | /pipelines/{task_id}/answers | guided flow: `{answers}` → resumes a run waiting for the questionnaire |
+| POST | /pipelines/{task_id}/approval | guided flow: `{decision: approve\|reject, by, comment}` → resumes a run waiting for approval |
+| GET | /pipelines/{task_id}/test-results/{junit.xml\|test-report.html} | published test results |
 | GET | /pipelines/{task_id} | full run (steps, gates, components, report) |
 | GET | /pipelines/{task_id}/stream | live agent events (SSE) |
 | GET | /pipelines/{task_id}/report.pdf | PDF report |

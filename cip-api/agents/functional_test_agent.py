@@ -41,7 +41,31 @@ class FunctionalTestAgent:
     def __init__(self) -> None:
         self.node_name = "functional_test_agent"
 
-    async def _case(self, client: httpx.AsyncClient, base: str, path: str, title: str, expect: str = "") -> dict:
+    @staticmethod
+    def _explain(case: dict, base: str, path: str, kind: str, expect: str, status_code=None, errs=(), found=None) -> dict:
+        """Plain explanation of a functional test case (what / checks / how / expected / actual / why)."""
+        url = urljoin(base, path)
+        purpose = {"API": f"Checks that the API endpoint GET {path} of the running service answers correctly.",
+                   "journey": f"Checks a user journey: a user opening {path} must see '{expect}'.",
+                   }.get(kind, f"Checks that the page {path} of the running application loads for a user without an error.")
+        checks = ["HTTP status below 400 (the server answered without a client / server error)",
+                  "the response does not contain a known error page (stack trace, 'Internal Server Error', 502, …)"]
+        if expect:
+            checks.append(f"the response contains the text '{expect}'")
+        ok = case["status"] == "passed"
+        actual = (f"HTTP {status_code}" + (f", error page text found: {', '.join(errs)}" if errs else ", no error page")
+                  + (f", text '{expect}' {'found' if found else 'not found'}" if expect else "")
+                  if status_code is not None else f"request failed: {case['message']}")
+        case.update(kind=kind, purpose=purpose, checks="; ".join(checks) + ".",
+                    how=[f"HTTP GET {url} on the container deployed in dev (httpx, 20s timeout, redirects followed)",
+                         "status code and body checked by the functional test agent"],
+                    expected="; ".join(checks), actual=actual,
+                    why=("Passed: the server answered and every check held." if ok else
+                         f"Failed: {case['message'] or 'a check did not hold'}." if case["status"] == "failed" else
+                         f"Error: the request could not be completed ({case['message']}) – the service is down or not reachable."))
+        return case
+
+    async def _case(self, client: httpx.AsyncClient, base: str, path: str, title: str, expect: str = "", kind: str = "page") -> dict:
         t0 = time.time()
         try:
             r = await client.get(urljoin(base, path))
@@ -50,10 +74,12 @@ class FunctionalTestAgent:
             ok = r.status_code < 400 and not errs and (not expect or expect.lower() in text.lower())
             msg = "" if ok else f"HTTP {r.status_code}" + (f", page shows: {errs}" if errs else "") + (
                 f", expected text '{expect}' not found" if expect and expect.lower() not in text.lower() else "")
-            return {"name": title, "suite": base, "status": "passed" if ok else "failed", "time_s": round(time.time() - t0, 2),
+            case = {"name": title, "suite": base, "status": "passed" if ok else "failed", "time_s": round(time.time() - t0, 2),
                     "message": msg, "html": text[:200_000]}
+            return self._explain(case, base, path, kind, expect, r.status_code, errs, bool(expect) and expect.lower() in text.lower())
         except Exception as e:  # noqa: BLE001
-            return {"name": title, "suite": base, "status": "error", "time_s": round(time.time() - t0, 2), "message": str(e)}
+            case = {"name": title, "suite": base, "status": "error", "time_s": round(time.time() - t0, 2), "message": str(e)}
+            return self._explain(case, base, path, kind, expect)
 
     async def run(self, state: PipelineState, config: RunnableConfig) -> PipelineState:
         task_id, t0 = state["task_id"], time.time()
@@ -81,7 +107,7 @@ class FunctionalTestAgent:
                     if r.status_code == 200 and "paths" in r.text:
                         for path, ops in list(r.json().get("paths", {}).items())[:25]:
                             if "get" in ops and "{" not in path:
-                                cases.append(await self._case(client, base, path, f"{s['component']}: GET {path} answers"))
+                                cases.append(await self._case(client, base, path, f"{s['component']}: GET {path} answers", kind="API"))
                         break
                 llm = await LLMProvider().get_llm(state.get("provider"))
                 if llm and home.get("html"):
@@ -89,7 +115,7 @@ class FunctionalTestAgent:
                                              "web app: a page path and a short text a user must see there.",
                                              f"Home page HTML:\n{home['html'][:20000]}\nKnown paths: {sorted(links)[:30]}")
                     for x in (j.journeys if j else []):
-                        cases.append(await self._case(client, base, x.path, f"{s['component']}: {x.title}", x.expect_text))
+                        cases.append(await self._case(client, base, x.path, f"{s['component']}: {x.title}", x.expect_text, kind="journey"))
         for i, c in enumerate(cases, 1):
             c.pop("html", None)
             c["id"] = f"TC-FT-{i:03d}"

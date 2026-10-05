@@ -20,6 +20,7 @@ from llmapi.llm_provider import LLMProvider
 from services.stream_event_writer import StreamStatus
 from utils.agent_events import emit, step_record
 from utils.quality_gates import test_gate
+from utils.test_explain import explain_unit_tests, explain_with_llm
 from utils.test_reports import coverage_percent, parse_results, summarize
 
 GENERATED = [".cip/generated-junit.xml", ".cip/generated-jest.json", ".cip/generated-go-test.json"]
@@ -60,23 +61,28 @@ class TestAgent:
         if comp.get("test_command"):
             res = await tools.run(comp["test_command"], comp["path"])
             cases = parse_results(folder, comp.get("test_reports") or [])
-            if not cases or all(c["status"] == "error" for c in cases):        # tests could not even start
+            tries, attempt = int((state.get("options") or {}).get("self_heal_attempts", 1)), 0
+            while (not cases or all(c["status"] == "error" for c in cases)) and attempt < max(tries, 1):   # could not start
+                attempt += 1
                 fix = env_fix(comp["test_command"], res["output"] + " ".join(c.get("message", "") for c in cases))
                 if fix:
                     await emit(task_id, node, StreamStatus.PROGRESS, f"test environment incomplete – {fix}")
                     await tools.run(fix, comp["path"])
-                elif llm:
-                    await emit(task_id, node, StreamStatus.PROGRESS, "tests could not start – the agent is repairing the test setup")
-                    notes = await tool_loop(
+                elif llm and attempt <= tries:
+                    await emit(task_id, node, StreamStatus.PROGRESS, f"tests could not start – self-healing attempt {attempt}/{tries}: "
+                                                                     "the agent is repairing the test setup")
+                    notes += (f"\n--- self-healing attempt {attempt} ---\n" if tries > 1 else "") + await tool_loop(
                         llm, tools.tools,
                         "The unit tests of this component could not start. Find out why with the tools and fix the TEST "
                         "ENVIRONMENT only (missing test dependency, missing config / setup file the tests expect, wrong "
                         "command). Never change application code or the assertions. Finish with: ROOT CAUSE: … FIX: …",
-                        f"Component {comp['name']} in {comp['path']}.\nCommand: {comp['test_command']}\nOutput:\n{res['output'][-6000:]}",
-                        task_id, node, max_steps=10)
-                if fix or notes:
-                    await tools.run(comp["test_command"], comp["path"])
-                    cases = parse_results(folder, comp.get("test_reports") or [])
+                        f"Component {comp['name']} in {comp['path']}.\nCommand: {comp['test_command']}\nOutput:\n{res['output'][-6000:]}"
+                        + (f"\n\nEarlier attempts (not enough yet):\n{notes[-2500:]}" if notes else ""),
+                        task_id, node, max_steps=16)
+                else:
+                    break
+                res = await tools.run(comp["test_command"], comp["path"])
+                cases = parse_results(folder, comp.get("test_reports") or [])
         if llm and not [c for c in cases if c["status"] != "skipped"]:
             await emit(task_id, node, StreamStatus.PROGRESS, "no unit tests ran – the agent is writing tests for this code")
             notes = await tool_loop(
@@ -94,6 +100,14 @@ class TestAgent:
             generated = bool(cases)
             for c in cases:
                 c["source"] = "AI-generated"
+        # Every test case gets a plain explanation: what it is about, what it checks, how it ran, result and why.
+        explain_unit_tests(cases, folder, "" if generated else comp.get("test_command") or "")
+        if llm and (state.get("options") or {}).get("explain_tests"):
+            try:
+                await emit(task_id, node, StreamStatus.PROGRESS, f"explaining {len(cases)} test case(s) in plain words")
+                await explain_with_llm(llm, cases)
+            except Exception as exc:   # explanations are a nice-to-have; never fail the tests because of them
+                notes += f"\n(test explanations by the LLM skipped: {exc})"
         cov = coverage_percent(folder)
         summ = summarize(cases)
         gate = test_gate(summ, cov)
@@ -104,7 +118,8 @@ class TestAgent:
         await emit(task_id, node, StreamStatus.END, message, parent="component_lanes")
         result.update(tests={"status": status, "summary": summ, "coverage": cov, "generated": generated}, test_gate=gate)
         return {"result": result, "steps": {
-            node: step_record(node, "Unit tests", "unit tests", status, message, comp["name"], summary={**summ, "coverage %": cov},
+            node: step_record(node, "Unit tests", "unit tests", status, message, comp["name"],
+                              summary={**summ, "coverage %": cov, **({"self-heal attempts": attempt} if comp.get("test_command") and attempt else {})},
                               items=cases, item_type="tests", commands=tools.commands, explanation=notes, started=t0),
             f"test_gate.{comp['name']}": step_record(f"test_gate.{comp['name']}", "Test gate", "unit tests",
                                                      "passed" if gate["passed"] else "failed",

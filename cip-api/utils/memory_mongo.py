@@ -35,6 +35,9 @@ class _Collection:
     async def update_one(self, *a, **k):
         return self._c.update_one(*a, **k)
 
+    async def update_many(self, *a, **k):
+        return self._c.update_many(*a, **k)
+
     async def delete_one(self, *a, **k):
         return self._c.delete_one(*a, **k)
 

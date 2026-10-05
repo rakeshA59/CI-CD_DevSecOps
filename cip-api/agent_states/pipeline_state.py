@@ -43,6 +43,15 @@ class PipelineState(TypedDict, total=False):
     report: Dict[str, Any]
     errors: Annotated[List[str], operator.add]
 
+    # Guided DevOps flow (mode = "guided"): questionnaire answers, the derived pipeline and the later stages
+    mode: str                        # "quick" (fixed flow) | "guided" (questionnaire → derived pipeline)
+    detected: Dict[str, Any]         # what discovery learned from the code (pre-fills the questionnaire)
+    answers: Dict[str, Any]          # the user's questionnaire answers
+    spec: List[Dict[str, Any]]       # derived pipeline: stages, tools, MCP server, why, included / skipped
+    release: Dict[str, Any]          # component -> image in the registry
+    uat: Dict[str, Any]              # UAT deployment
+    approval: Dict[str, Any]         # human decision before UAT
+
 
 class LaneState(TypedDict, total=False):
     """State of one component lane (sent to the lane sub-graph with LangGraph Send)."""

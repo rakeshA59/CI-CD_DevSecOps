@@ -22,6 +22,7 @@ class StreamStatus(str, Enum):
     ERROR = "ERROR"
     SKIPPED = "SKIPPED"
     SYSTEM_END = "SYSTEM_END"
+    SYSTEM_PAUSE = "SYSTEM_PAUSE"      # guided run paused (questionnaire / approval) – the stream ends, the run continues later
 
 
 class StreamEventWriter:

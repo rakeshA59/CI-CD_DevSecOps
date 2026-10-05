@@ -62,6 +62,8 @@ def _json(text: str, default=None):
 def _rel(path: str, root: str) -> str:
     p = str(path or "").replace("\\", "/")
     r = str(Path(root).resolve()).replace("\\", "/")
+    if p.rstrip("/").lower() == r.lower():
+        return "."
     return p[len(r) + 1:] if p.lower().startswith(r.lower() + "/") else p.removeprefix("/src/")
 
 
@@ -85,6 +87,9 @@ async def _run(argv: list[str], cwd: str | None = None, timeout: int = 1500, ext
     except asyncio.TimeoutError:
         proc.kill()
         return 124, "", f"timeout after {timeout}s"
+    except asyncio.CancelledError:          # the run was stopped
+        proc.kill()
+        raise
     return proc.returncode, out.decode("utf-8", "replace"), err.decode("utf-8", "replace")
 
 

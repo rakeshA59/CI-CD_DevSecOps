@@ -35,4 +35,10 @@ async def tool_loop(llm, tools: list, system: str, human: str, task_id: str = ""
                 logging.warning("[%s] tool %s failed: %s", node, call["name"], e)
                 result = f"tool error: {e}"
             messages.append(ToolMessage(content=str(result)[:12000], tool_call_id=call["id"]))
-    return "stopped after the maximum number of tool calls"
+    # Out of tool calls: keep what the agent found so far, so the next self-healing attempt can build on it.
+    said = [m.content for m in messages if getattr(m, "type", "") == "ai" and isinstance(m.content, str) and m.content.strip()]
+    done = [f"{c['name']}({', '.join(f'{k}={str(v)[:40]}' for k, v in (c.get('args') or {}).items())})"
+            for m in messages if getattr(m, "type", "") == "ai" for c in (getattr(m, "tool_calls", None) or [])]
+    return ("stopped after the maximum number of tool calls. "
+            + (f"Notes so far: {' '.join(said)[-1500:]} " if said else "")
+            + (f"Actions taken: {'; '.join(done[-12:])}" if done else ""))

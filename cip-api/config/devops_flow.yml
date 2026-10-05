@@ -1,0 +1,131 @@
+# Guided DevOps flow – the questionnaire and the stage catalogue.
+#
+# questionnaire: what the agent asks after it has read the code. `prefill` names the discovery rule that pre-answers
+#                it; options with `runs: false` are recorded for later (GitLab, Jenkins, clouds) but run locally today.
+# stages:        every stage the pipeline designer can choose, in execution order: which LangGraph node runs it, which
+#                tools / MCP server it uses, why it exists (shown in the stage report) and when it applies.
+
+questionnaire:
+  - id: ci_platform
+    label: Where should the pipeline run?
+    type: single
+    prefill: ci_files
+    options:
+      - {value: local, label: Local (CIP runs every stage), runs: true}
+      - {value: gitlab, label: GitLab CI, runs: false}
+      - {value: jenkins, label: Jenkins, runs: false}
+      - {value: github_actions, label: GitHub Actions, runs: false}
+      - {value: azure_devops, label: Azure DevOps, runs: false}
+      - {value: aws_codepipeline, label: AWS CodePipeline, runs: false}
+  - id: cloud
+    label: Which cloud is the target environment in?
+    type: single
+    options:
+      - {value: none, label: None – local machine, runs: true}
+      - {value: aws, label: AWS, runs: false}
+      - {value: azure, label: Azure, runs: false}
+      - {value: gcp, label: Google Cloud, runs: false}
+  - id: deploy_as
+    label: How should the application be delivered?
+    type: single
+    prefill: deployable
+    options:
+      - {value: container, label: Container image, runs: true}
+      - {value: package, label: Package only (build artifacts), runs: true}
+  - id: target
+    label: Which server should it be deployed to?
+    type: single
+    options:
+      - {value: local_docker, label: Local Docker, runs: true}
+      - {value: vm, label: Virtual machine, runs: false}
+      - {value: kubernetes, label: Kubernetes, runs: false}
+  - id: registry
+    label: Where should the image be released?
+    type: single
+    options:
+      - {value: local, label: "Local registry (localhost:5000)", runs: true}
+      - {value: none, label: Do not release, runs: true}
+  - id: tests
+    label: Which tests should run?
+    type: multi
+    prefill: tests
+    options:
+      - {value: unit, label: Unit tests, runs: true}
+      - {value: functional, label: Functional / API tests on the running app, runs: true}
+      - {value: ui, label: UI browser tests (Selenium), runs: true}
+  - id: uat
+    label: Deploy to a UAT environment after the tests?
+    type: bool
+    default: true
+  - id: approval_before_uat
+    label: Ask for human approval before the UAT deploy?
+    type: bool
+    default: true
+  - id: self_heal_attempts
+    label: How many times may the agents fix a failing stage and retry?
+    type: number
+    min: 0
+    max: 3
+    default: 2
+
+stages:
+  - id: scan
+    node: security_agent
+    title: Security scan
+    why: Find vulnerable code (SAST), vulnerable dependencies (SCA), leaked secrets and misconfigurations before anything is built or shipped.
+    tools: [semgrep, bandit, codeql, trivy-fs, osv-scanner, pip-audit, npm-audit, snyk, gitleaks, trufflehog, sonarqube, github-alerts]
+    mcp: scanner MCP (:8051)
+  - id: build_test_package
+    node: component_lanes
+    title: Build · unit tests · package · containerise
+    why: Compile every component with its own toolchain, prove it works with unit tests, then package it (and build + scan its image).
+    tools: [toolchain installer, npm / pip / maven / gradle / go, pytest / jest / vitest / junit, docker build, trivy image]
+    mcp: docker MCP (:8052), scanner MCP (:8051)
+  - id: release
+    node: release_agent
+    title: Release to registry
+    why: Publish the tested image under a fixed tag so every later environment deploys exactly the same artifact.
+    tools: [docker tag, docker push, "registry:2"]
+    mcp: docker MCP (:8052)
+  - id: deploy_dev
+    node: deploy_agent
+    title: Deploy to dev
+    why: Run the released images together on a private network to see the application start and answer requests.
+    tools: [docker run, HTTP health check]
+    mcp: docker MCP (:8052)
+  - id: functional_tests
+    node: functional_test_agent
+    title: Functional tests
+    why: Exercise the running application like a user would – pages, API endpoints and AI-proposed journeys.
+    tools: [HTTP crawler, OpenAPI GET checks, LLM user journeys]
+    mcp: –
+  - id: ui_tests
+    node: ui_test_agent
+    title: UI browser tests
+    why: Use the running application in a real browser (Selenium + headless Chrome) – pages render with their JavaScript, no console errors, navigation and forms work, AI-written user journeys succeed – with a screenshot of every check.
+    tools: [Selenium WebDriver, headless Chrome, browser console log, screenshots, LLM user journeys]
+    mcp: –
+  - id: publish_tests
+    node: publish_tests_agent
+    title: Publish test results
+    why: Collect every test result of the run into one report (JUnit XML + HTML) that can be attached to the release / user story.
+    tools: [JUnit XML writer, HTML report]
+    mcp: –
+  - id: approval
+    node: approval_gate
+    title: Approval before UAT
+    why: A human reviews the stage reports and decides whether the build may go to UAT.
+    tools: [human review]
+    mcp: –
+  - id: deploy_uat
+    node: uat_deploy_agent
+    title: Deploy to UAT
+    why: Run the released images in the UAT environment (separate network and ports) for acceptance testing.
+    tools: [docker run, HTTP health check]
+    mcp: docker MCP (:8052)
+  - id: report
+    node: report_agent
+    title: Final report
+    why: Decide the overall result from the gates, explain the root cause and write the PDF report.
+    tools: [quality gates, LLM explanation, PDF]
+    mcp: –

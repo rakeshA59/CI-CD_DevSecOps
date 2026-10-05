@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from core.settings import CORS_ORIGINS, ENVIRONMENT, RUNS_DIR, STREAM_DB_PATH
 from graph_builders.pipeline_graph_builder import get_pipeline_graph
+from repositories.pipeline_repository import PipelineRepository
 from routers import llm_router, pipeline_router
 from services.stream_event_writer import stream_writer
 from utils.mongo_connection import get_mongo_client
@@ -35,6 +36,7 @@ async def lifespan(app: FastAPI):
     try:
         await get_mongo_client()
         logging.info("MongoDB client ready")
+        await PipelineRepository().stop_unfinished_runs("the API was restarted while the run was in progress")
     except Exception:
         logging.exception("MongoDB not reachable – set mongo_db_url in .env")
     yield

@@ -46,3 +46,11 @@ def functional_gate(cases: list[dict], healthy: bool, blocked: str = "") -> dict
                                 ("functional tests executed", len(run), ">= 1", len(run) >= 1),
                                 ("pass rate %", rate, f">= {GATES['functional']['pass_rate']}", rate >= GATES["functional"]["pass_rate"])],
                  blocked)
+
+
+def ui_gate(cases: list[dict], blocked: str = "") -> dict:
+    run = [c for c in cases if c["status"] in ("passed", "failed", "error")]
+    rate = round(100 * sum(c["status"] == "passed" for c in run) / len(run), 1) if run else 0.0
+    need = GATES["ui"]["pass_rate"]
+    return _gate("ui", [("UI tests executed", len(run), ">= 1", len(run) >= 1),
+                        ("pass rate %", rate, f">= {need}", rate >= need)], blocked)

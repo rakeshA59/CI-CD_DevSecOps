@@ -37,10 +37,16 @@ GATES = {
     "testing": {"pass_rate": float(env("gate_pass_rate", 100)), "coverage": float(env("gate_coverage", 60))},
     "container": {"critical": int(env("gate_image_critical", 0)), "high": int(env("gate_image_high", 5))},
     "functional": {"pass_rate": float(env("gate_functional_pass_rate", 100))},
+    "ui": {"pass_rate": float(env("gate_ui_pass_rate", 80))},          # browser checks are noisier than API checks
 }
 
 # MCP servers (SSE). When a server is not running, the client calls the same functions in-process.
 SCANNER_MCP_URL = env("scanner_mcp_url", "http://localhost:8051/sse")
 DOCKER_MCP_URL = env("docker_mcp_url", "http://localhost:8052/sse")
+
+# Selenium (UI browser tests): Chrome is found automatically and Selenium Manager downloads the matching driver.
+# Set these only for a portable Chrome / an offline driver.
+CHROME_BINARY = env("chrome_binary", "")
+CHROMEDRIVER_PATH = env("chromedriver_path", "")
 
 CORS_ORIGINS = env("cors_origins", "http://localhost:5173,http://127.0.0.1:5173").split(",")

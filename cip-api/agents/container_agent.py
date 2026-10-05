@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 
 from agent_states.pipeline_state import LaneState
 from agent_tools.workspace_tools import WorkspaceTools
+from agents.tool_loop import tool_loop
 from llmapi.llm_provider import LLMProvider
 from llmapi.structured_llm import ask_structured
 from mcp_services.mcp_clients.mcp_tool_client import docker_client, scanner_client
@@ -34,6 +35,13 @@ TEMPLATES = {
           "FROM gcr.io/distroless/static-debian12:nonroot\nCOPY --from=build /app /app\nEXPOSE 8080\nENTRYPOINT [\"/app\"]\n",
 }
 TEMPLATES["TypeScript"] = TEMPLATES["JavaScript"]
+
+
+def exposed_port(folder: Path, default: int) -> int:
+    """The port the Dockerfile EXPOSEs (the agent may have rewritten it), else `default`."""
+    df = folder / "Dockerfile"
+    found = re.findall(r"^EXPOSE\s+(\d+)", df.read_text(errors="replace"), re.M) if df.is_file() else []
+    return int(found[-1]) if found else default
 
 
 class Dockerfile(BaseModel):
@@ -105,15 +113,69 @@ class ContainerAgent:
         tag = f"cip-{re.sub(r'[^a-z0-9-]', '-', name.lower())}:{re.sub(r'[^a-z0-9]', '', task_id.lower())[-16:]}"
         await emit(task_id, node, StreamStatus.COMMAND, f"$ docker build -t {tag} . (Dockerfile: {source})")
         image = await docker.call_tool("docker_build", {"context": str(folder), "tag": tag})
+        tries, attempt, heal = int(opts.get("self_heal_attempts", 1)), 0, ""
+        llm = await LLMProvider().get_llm(state.get("provider")) if not image["built"] or opts.get("heal_cves") else None
+        while not image["built"] and llm and attempt < tries:      # self-healing loop: read the build log → fix → rebuild
+            attempt += 1
+            await emit(task_id, node, StreamStatus.PROGRESS, f"docker build failed – self-healing attempt {attempt}/{tries}: "
+                                                             "the agent is reading the build log and fixing the Dockerfile")
+            heal += f"\n--- self-healing attempt {attempt} (docker build) ---\n" + await tool_loop(
+                llm, tools.tools,
+                "You are a release engineer. `docker build` failed for this component in a throw-away copy of the repository. "
+                "Read the Dockerfile and the files it copies, find the root cause in the build log and fix the Dockerfile "
+                "(or a missing .dockerignore / build file). Do not change application code. Finish with: ROOT CAUSE: … FIX: …",
+                f"Component {name} in folder {comp['path']} (Dockerfile: {source}).\nBuild log (end):\n{image.get('log', '')[-6000:]}"
+                + (f"\n\nEarlier attempts (did not fix it):\n{heal[-2500:]}" if attempt > 1 else ""),
+                task_id, node, max_steps=16)
+            image = await docker.call_tool("docker_build", {"context": str(folder), "tag": tag})
+        port = exposed_port(folder, port)            # the Dockerfile may have been rewritten – use its EXPOSE
         image.update(port=port, dockerfile_source=source, dockerfile=(folder / "Dockerfile").read_text(errors="replace"))
         scan = await scanner_client().call_tool("trivy_image_scan", {"image": tag}) if image["built"] else {"status": "skipped", "findings": []}
         gate = container_gate(image, scan.get("findings", []), scan.get("status") == "ok")
+        cve_try = 0
+        while opts.get("heal_cves") and llm and image["built"] and not gate["passed"] and cve_try < tries:
+            serious = [f for f in scan.get("findings", []) if f["severity"] in ("CRITICAL", "HIGH") and f.get("fixed_version")]
+            if not serious:
+                break
+            cve_try += 1
+            before = f"{sum(f['severity'] == 'CRITICAL' for f in scan['findings'])} critical / {sum(f['severity'] == 'HIGH' for f in scan['findings'])} high"
+            await emit(task_id, node, StreamStatus.PROGRESS, f"image has {before} CVEs with fixes available – self-healing attempt "
+                                                             f"{cve_try}/{tries}: the agent is hardening the Dockerfile")
+            backup = (folder / "Dockerfile").read_text(errors="replace")
+            listing = "\n".join(sorted({f"{f['severity']} {f.get('package')} {f.get('installed_version')} → {f.get('fixed_version')}"
+                                         for f in serious})[:40])
+            heal += f"\n--- self-healing attempt {cve_try} (image CVEs, {before}) ---\n" + await tool_loop(
+                llm, tools.tools,
+                "You are a release engineer. The container image builds, but its vulnerability scan finds critical / high CVEs "
+                "in OS or runtime packages that already have fixed versions. Change ONLY the Dockerfile so the final image "
+                "contains the fixed versions: move the base images to a newer patch / minor tag of the same family (e.g. a "
+                "newer alpine / slim / nginx tag) and/or upgrade OS packages in the final stage (apk upgrade --no-cache, or "
+                "apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*). Keep the same EXPOSE port, user and "
+                "start command. Do not change application code. Finish with: ROOT CAUSE: … FIX: …",
+                f"Component {name} in folder {comp['path']}.\nDockerfile:\n{backup}\n\nFixable CVEs (package installed → fixed):\n{listing}",
+                task_id, node, max_steps=12)
+            rebuilt = await docker.call_tool("docker_build", {"context": str(folder), "tag": tag})
+            if not rebuilt["built"]:                 # never leave a broken image behind – undo this attempt
+                (folder / "Dockerfile").write_text(backup, encoding="utf-8")
+                image = await docker.call_tool("docker_build", {"context": str(folder), "tag": tag})
+                heal += "\n(the hardened Dockerfile did not build – reverted to the previous one)"
+                continue
+            port = exposed_port(folder, port)
+            image = {**rebuilt, "port": port, "dockerfile_source": source + " + CVE hardening by the agent",
+                     "dockerfile": (folder / "Dockerfile").read_text(errors="replace")}
+            scan = await scanner_client().call_tool("trivy_image_scan", {"image": tag})
+            gate = container_gate(image, scan.get("findings", []), scan.get("status") == "ok")
+            after = f"{sum(f['severity'] == 'CRITICAL' for f in scan.get('findings', []))} critical / {sum(f['severity'] == 'HIGH' for f in scan.get('findings', []))} high"
+            heal += f"\nRESULT: {before} → {after} CVEs after the rebuild"
+            await emit(task_id, node, StreamStatus.PROGRESS, f"rebuilt and re-scanned: {before} → {after}")
+        attempt += cve_try
         result.update(image=image, image_scan=scan, container_gate=gate)
         msg = (f"{tag} ({image.get('size_mb')} MB) · Dockerfile {source} · scan: {scan.get('message', scan['status'])}"
                if image["built"] else f"docker build failed: {image.get('log', '')[-500:]}")
         await emit(task_id, node, StreamStatus.END if image["built"] else StreamStatus.ERROR, msg, parent="component_lanes")
         steps[node] = step_record(node, "Docker image + scan", "containerize", "passed" if gate["passed"] else "failed", msg, name,
-                                  summary={"image": tag, "dockerfile": source, "via": docker.last_transport},
+                                  summary={"image": tag, "dockerfile": source, "via": docker.last_transport,
+                                           **({"self-heal attempts": attempt} if attempt else {})}, explanation=heal.strip(),
                                   items=scan.get("findings", []), item_type="findings", started=t1)
         steps[f"container_gate.{name}"] = step_record(f"container_gate.{name}", "Container gate", "containerize",
                                                       "passed" if gate["passed"] else "failed",

@@ -4,7 +4,8 @@ Build Agent (one per component lane).
 Runs the planned build commands. When a build fails the agent does not give up:
   1. a missing tool (mvn / java / node / go / gradle) is installed automatically and the build retried;
   2. with an LLM, it reads the error, investigates with its tools (read files, run commands, install toolchains),
-     fixes what it can in the workspace copy, and the build is retried once.
+     fixes what it can in the workspace copy, and the build is retried – up to `self_heal_attempts` times
+     (1 in the quick flow, chosen in the questionnaire in the guided flow).
 Every command and the agent's diagnosis are kept as the step's evidence.
 """
 
@@ -54,16 +55,21 @@ class BuildAgent:
                     diagnosis += await tools.install_toolchain(tool) + "\n"
                 fail = await self._build(tools, comp)
         llm = await LLMProvider().get_llm(state.get("provider")) if fail else None
-        if fail and llm:
-            await emit(task_id, node, StreamStatus.PROGRESS, "build failed – the agent is investigating the error")
-            diagnosis += await tool_loop(
+        tries, attempt = int((state.get("options") or {}).get("self_heal_attempts", 1)), 0
+        while fail and llm and attempt < tries:          # self-healing loop: read the log → fix → build again
+            attempt += 1
+            await emit(task_id, node, StreamStatus.PROGRESS, f"build failed – self-healing attempt {attempt}/{tries}: "
+                                                             "the agent is reading the log and fixing the build")
+            notes = await tool_loop(
                 llm, tools.tools,
                 "You are a build engineer fixing a failing CI build in a throw-away copy of the repository. Find the root "
                 "cause with the tools. You may install missing toolchains, run commands (e.g. install a missing dependency) "
                 "and edit build files when the fix is obvious. Do not touch application logic. Finish with: ROOT CAUSE: … "
                 "FIX: … (what you changed, or what the team must change).",
-                f"Component {comp['name']} in folder {comp['path']}.\nFailed command: {fail['cmd']}\nOutput (end):\n{fail['output'][-6000:]}",
-                task_id, node, max_steps=12)
+                f"Component {comp['name']} in folder {comp['path']}.\nFailed command: {fail['cmd']}\nOutput (end):\n"
+                f"{fail['output'][-6000:]}" + (f"\n\nEarlier attempts (did not fix it):\n{diagnosis[-2500:]}" if attempt > 1 else ""),
+                task_id, node, max_steps=18)
+            diagnosis += (f"\n--- self-healing attempt {attempt} ---\n" if tries > 1 else "") + notes
             fail = await self._build(tools, comp)
         status = "failed" if fail else "passed"
         message = (f"build failed: {fail['output'][-600:]}" if fail else
@@ -73,4 +79,4 @@ class BuildAgent:
                                                        "path": tools.extra_path, "env": tools.extra_env}}
         return {"result": result, "steps": {f"build.{comp['name']}": step_record(
             f"build.{comp['name']}", "Build", "build", status, message, component=comp["name"], commands=tools.commands,
-            explanation=diagnosis.strip(), started=t0)}}
+            explanation=diagnosis.strip(), started=t0, summary={"self-heal attempts": attempt} if attempt else None)}}

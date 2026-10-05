@@ -9,6 +9,7 @@ Planner Agent (Plan-Execute: plans the whole pipeline upfront).
 
 import json
 import os
+import re
 import time
 from pathlib import Path
 from typing import List
@@ -122,6 +123,27 @@ def rule_plan(ws: Path, repo: str = "") -> list[dict]:
     return comps
 
 
+def ensure_coverage(comp: dict, draft: list[dict]) -> dict:
+    """The LLM sometimes drops the coverage flags from the test command – put them back (vitest / jest / pytest),
+    so the test gate can measure line coverage instead of reporting 0 %."""
+    cmd = comp.get("test_command") or ""
+    if not cmd or any(k in cmd for k in ("coverage", "--cov", "coverprofile")):
+        return comp
+    rule = next((d for d in draft if d["path"] == comp["path"]), {})
+    if "vitest" in cmd:
+        ver = re.search(r"@vitest/coverage-v8@([^\s]+)", rule.get("test_command") or "")
+        cmd = (f"npm install --no-save @vitest/coverage-v8@{ver.group(1) if ver else 'latest'} && "
+               + re.sub(r"vitest run", "vitest run --coverage.enabled --coverage.reporter=json-summary "
+                                       "--coverage.reportsDirectory=.cip/coverage", cmd, count=1))
+    elif "jest" in cmd:
+        cmd += " --coverage --coverageReporters=json-summary --coverageDirectory=.cip/coverage"
+    elif "pytest" in cmd and "pytest-cov" in " ".join(comp.get("build_commands") or []):
+        cmd += " --cov=. --cov-report=xml:.cip/coverage.xml"
+    else:
+        return comp
+    return {**comp, "test_command": cmd}
+
+
 class PlannerAgent:
     def __init__(self) -> None:
         self.node_name = "planner_agent"
@@ -150,7 +172,7 @@ class PlannerAgent:
                                           f"on {'Windows (cmd.exe)' if os.name == 'nt' else 'Linux'}; use the draft where it is right.",
                                           f"Draft:\n{json.dumps(draft)}\n\nNotes:\n{notes}")
             if result and result.components:
-                plan = [c.model_dump() for c in result.components if (ws / c.path).is_dir()]
+                plan = [ensure_coverage(c.model_dump(), draft) for c in result.components if (ws / c.path).is_dir()]
                 summary, how = result.summary, f"LLM ({state.get('provider')}) after exploring the repo"
         for c in plan:
             await emit(task_id, self.node_name, StreamStatus.PROGRESS,

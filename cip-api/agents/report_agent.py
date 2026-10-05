@@ -29,8 +29,9 @@ def overall(state: PipelineState) -> tuple[str, list[str]]:
     gates = (state.get("gates") or {}).values()
     if failed or blocked or any(not g["passed"] for g in gates):
         return "FAIL", lines
-    if any(s["status"] == "skipped" for s in steps):
-        return "INCOMPLETE", lines or ["some steps were skipped (e.g. Docker not running)"]
+    skipped = [s for s in steps if s["status"] == "skipped"]
+    if skipped:
+        return "INCOMPLETE", lines or [f"{s['name']} skipped: {s['message'][:200]}" for s in skipped[:6]]
     return "PASS", lines
 
 

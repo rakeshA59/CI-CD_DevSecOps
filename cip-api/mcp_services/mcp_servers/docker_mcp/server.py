@@ -37,5 +37,17 @@ async def docker_remove(names: list[str], network: str = "") -> dict:
     return await docker_ops.docker_remove(names, network)
 
 
+@mcp.tool()
+async def docker_registry(port: int = 5000) -> dict:
+    """Make sure a local image registry (registry:2) is running on localhost:<port>."""
+    return await docker_ops.docker_registry(port)
+
+
+@mcp.tool()
+async def docker_push(image: str, registry: str, repository: str) -> dict:
+    """Tag a local image as <registry>/<repository>:<tag> and push it to the registry."""
+    return await docker_ops.docker_push(image, registry, repository)
+
+
 if __name__ == "__main__":
     mcp.run(transport="sse")

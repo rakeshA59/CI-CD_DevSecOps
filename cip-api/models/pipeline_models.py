@@ -19,6 +19,17 @@ class StartPipelineRequest(BaseModel):
     branch: Optional[str] = None
     llm_provider: Optional[str] = Field(None, description="azure_openai | openai | anthropic | gemini | none")
     options: RunOptions = RunOptions()
+    mode: str = Field("quick", description="quick = fixed flow · guided = questionnaire → derived pipeline → approval → UAT")
+
+
+class QuestionnaireAnswers(BaseModel):
+    answers: dict = Field(default_factory=dict, description="question id -> value (see the run's pending questions)")
+
+
+class ApprovalDecision(BaseModel):
+    decision: str = Field(description="approve | reject")
+    by: str = Field("reviewer", max_length=80)
+    comment: str = Field("", max_length=500)
 
 
 class ProviderSelection(BaseModel):

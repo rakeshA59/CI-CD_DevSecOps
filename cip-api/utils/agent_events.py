@@ -5,6 +5,9 @@ Helpers every agent uses: stream an event, run a shell command, build a step rec
 import asyncio
 import logging
 import os
+import signal
+import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -18,6 +21,17 @@ async def emit(task_id: str, node: str, status: StreamStatus, message: str = "",
     await stream_writer.push(task_id=task_id, node=node, parent=parent, status=status, message=message, data=data)
 
 
+def _kill_tree(pid: int) -> None:
+    """Kill a shell command with its children (npm, mvn, … start their own processes)."""
+    try:
+        if sys.platform == "win32":
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True, timeout=30)
+        else:
+            os.killpg(pid, signal.SIGKILL)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
 async def run_command(cmd: str, cwd: str | Path, task_id: str = "", node: str = "", timeout: int = 1800,
                       env: Optional[dict] = None) -> dict:
     """Run a shell command (cmd.exe on Windows, sh elsewhere) and return {code, output, seconds}.
@@ -29,13 +43,16 @@ async def run_command(cmd: str, cwd: str | Path, task_id: str = "", node: str = 
     try:
         proc = await asyncio.create_subprocess_shell(
             cmd, cwd=str(cwd), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
-            env={**os.environ, **(env or {})},
+            env={**os.environ, **(env or {})}, start_new_session=sys.platform != "win32",
         )
         try:
             out, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         except asyncio.TimeoutError:
-            proc.kill()
+            _kill_tree(proc.pid)
             return {"code": 124, "output": f"timeout after {timeout}s", "seconds": timeout, "cmd": cmd}
+        except asyncio.CancelledError:      # the run was stopped – end the command and everything it started
+            _kill_tree(proc.pid)
+            raise
         text = out.decode("utf-8", errors="replace")
         return {"code": proc.returncode, "output": text[-60_000:], "seconds": round(time.time() - t0, 1), "cmd": cmd}
     except OSError as e:

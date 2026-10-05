@@ -50,7 +50,7 @@ class MCPToolClient:
                 return json.loads(text) if text else {}
             except Exception as e:  # noqa: BLE001
                 logging.warning("[MCPToolClient] MCP call %s failed (%s) – calling it in-process", tool_name, e)
-        self.last_transport = "in-process (MCP server not running)"
+        self.last_transport = f"run directly by the API (MCP server {self.server_url} not started – same tool, same result)"
         return await self.local_tools[tool_name](**arguments)
 
 

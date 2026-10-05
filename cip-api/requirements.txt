@@ -14,5 +14,6 @@ mongomock>=4.1               # only for mongo_db_url=memory://
 aiosqlite>=0.20
 httpx>=0.27
 reportlab>=4.0
+selenium>=4.20              # UI browser tests (guided flow) – Selenium Manager fetches the Chrome driver
 # Scanners are NOT installed here (semgrep pins old opentelemetry packages that clash with the Google/LangChain ones).
 # They go into their own venv: see requirements-scanners.txt. trivy and gitleaks are single binaries (or Docker images).
