@@ -12,7 +12,9 @@ http.interceptors.response.use(
     (response) => response,
     (error) => {
         const message = error?.response?.data?.detail || error.message || 'Request failed';
-        return Promise.reject(new Error(typeof message === 'string' ? message : JSON.stringify(message)));
+        return Promise.reject(
+            new Error(typeof message === 'string' ? message : JSON.stringify(message))
+        );
     }
 );
 
@@ -20,6 +22,7 @@ const apiRepository = {
     get: async (url, params) => (await http.get(url, { params })).data,
     post: async (url, body) => (await http.post(url, body)).data,
     put: async (url, body) => (await http.put(url, body)).data,
+    delete: async (url) => (await http.delete(url)).data,
 };
 
 export default apiRepository;

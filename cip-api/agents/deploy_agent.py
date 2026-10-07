@@ -50,7 +50,7 @@ class DeployAgent:
         for name, image in images.items():
             await emit(task_id, self.node_name, StreamStatus.COMMAND, f"$ docker run -d --network {network} -p 127.0.0.1::{image['port']} {image['image']}")
             res = await docker.call_tool("docker_run", {"image": image["image"], "name": f"{network}-{name}", "network": network,
-                                                        "port": image["port"], "alias": name})
+                                                        "port": image["port"], "alias": name, "keep": self.env != "dev"})
             services.append({"component": name, "image": image["image"], **res})
             await emit(task_id, self.node_name, StreamStatus.PROGRESS, f"{name}: {res.get('url') or '-'} → {res['status']} ({res.get('message')})")
         healed, notes, lanes = await self._heal(state, services, images, network, docker)
@@ -105,7 +105,7 @@ class DeployAgent:
                 image["port"] = exposed_port(folder, image["port"])
                 await docker.call_tool("docker_remove", {"names": [f"{network}-{name}"]})
                 res = await docker.call_tool("docker_run", {"image": image["image"], "name": f"{network}-{name}", "network": network,
-                                                            "port": image["port"], "alias": name})
+                                                            "port": image["port"], "alias": name, "keep": self.env != "dev"})
                 services[i] = {"component": name, "image": image["image"], **res}
                 notes += f"\nRESULT: redeployed → {res['status']} ({res.get('message')}) {res.get('url', '')}"
                 await emit(state["task_id"], self.node_name, StreamStatus.PROGRESS, f"{name}: redeployed → {res['status']} ({res.get('message')})")

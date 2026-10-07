@@ -41,7 +41,8 @@ Settings page); `none` = rules only. `environment="production"` hides the API do
 
 ## Run (Windows, from the CI-CD_DevSecOps folder)
 
-One click: `start_agentic.bat` (creates the venv, installs, starts both MCP servers, the API and the app, opens the browser).
+One click: `start_agentic.bat` (uses your `venv` folder or creates `.venv`, installs, starts the API – which starts both MCP
+servers – and the app, opens the browser).
 
 Manual (Command Prompt), one window per step:
 ```
@@ -55,16 +56,12 @@ REM    all security scanners -> cip-api\.scanners (own venv + binaries; never in
 .venv\Scripts\python scripts\install_scanners.py
 copy .env.example .env
 
-REM 2. MCP servers on :8051 and :8052 (optional; without them the tools run inside the API)
-cd cip-api
-.venv\Scripts\python -m mcp_services.mcp_servers.scanner_mcp.server
-.venv\Scripts\python -m mcp_services.mcp_servers.docker_mcp.server
-
-REM 3. API on :8000 (no --reload: runs write into cip-api\runs and would restart it)
+REM 2. API on :8000 (no --reload: runs write into cip-api\runs and would restart it). It starts the scanner (:8051)
+REM    and docker (:8052) MCP servers itself (start_mcp_servers=false in .env to run them elsewhere).
 cd cip-api
 .venv\Scripts\python -m uvicorn main:app --port 8000
 
-REM 4. frontend on :5173
+REM 3. frontend on :5173
 cd cip-app
 npm install
 npm run dev
@@ -95,6 +92,11 @@ checkout → understand the tech stack → questionnaire (⏸ you answer) → de
 | UAT deploy (own network + ports, left running) | `DeployAgent("uat")` |
 | Self-healing loop (read log → fix → retry, `self_heal_attempts` times) | build, test-setup and Docker-image steps; guided flow also: image CVEs (harden the Dockerfile → rebuild → rescan) and dev deploy (read the container log → fix port / CMD / binding → redeploy) |
 | UI browser tests (Selenium, headless Chrome): pages render, no console errors, navigation, forms, LLM user journeys, a screenshot per test | `agents/ui_test_agent.py` – needs Chrome on the machine |
+| Security review – **HITL – review reports** after the scans (both flows; switch `security_review` on the run form) | `agents/security_review_agent.py` – approve continues, reject stops the pipeline |
+| One tool per scan type (SAST · SCA + IaC · secrets · lint per language), chosen by the tech stack, override in the questionnaire, fallback when it cannot run | `scanners.py` `pick_scanners()` / `FALLBACK` |
+| Pipeline · **Graph** · **Logs** views of a run (graph: stages, component branches, sub-step panels, zoom / layout / fit; logs: tabs, search, stage + step filter, export) | `cip-app/src/features/pipeline/components/graph/`, `LogsView.jsx` |
+| ⓘ on every step: hover summary, click = full step report (HTML) | `config/step_docs.yml`, `services/step_report_html.py`, `GET /pipelines/{id}/steps/{step}/report.html` |
+| Settings: LLM providers, infra providers (AWS / Azure / GCP credentials, encrypted), dev / test / prod environments | `routers/settings_router.py`, `utils/secret_box.py` (key: `settings_secret_key` or `.settings.key`) |
 | Test-case explanations (what it is about · what it checks · how · expected · actual · why) | `utils/test_explain.py`, functional + UI agents; shown under each test in the UI, `test-report.html` and the PDF |
 | Stage reports (what · where · how · why · result · suggestions · blockers) | `utils/stage_reports.py` – every step, both modes, also in the PDF |
 | Common dashboard | `GET /pipelines/dashboard`, page **Dashboard** |
@@ -114,15 +116,19 @@ this version. A paused run lives in the API's memory: restarting the API loses r
 | Dependencies | pip-audit · npm audit | Python · Node | .scanners venv · Node.js |
 | Dependencies | Snyk Open Source | `snyk_token` is set | `install_scanners.py` (binary) |
 | Secrets | Gitleaks · TruffleHog | always | `install_scanners.py` (binaries) |
-| Platform | SonarQube | `sonar_host_url` + `sonar_token` are set | your SonarQube server (scanner CLI or its Docker image) |
+| Platform | SonarQube | `sonar_host_url` + `sonar_token` are set (.env or Settings → Scanners) | your SonarQube server (scanner CLI or its Docker image) |
 | Platform | GitHub alerts: Dependabot, code scanning, **secret scanning** | GitHub source + `github_token` | – (GitHub API) |
 
-The run form lets you switch off "Automatic" and pick scanners yourself. A scanner whose tool is missing falls back
-to its Docker image, else is shown as *skipped* with how to install it – the run continues. `.venv\Scripts\python
-scripts\install_scanners.py` can be rerun any time to update the scanners (or `... install_scanners.py trivy` for one).
+The run form lets you switch off "Automatic" and pick scanners yourself. Self-healing: a missing scanner is installed
+into `.scanners` before the scan; a scanner whose install is broken (ImportError, …) is reinstalled and rerun, then –
+with an LLM – the agent repairs the install from the error output; only then its Docker image / the fallback tool of
+the same type is used. Settings → Scanners shows the MCP servers, each scanner's state (Install / Repair) and the
+SonarQube connection. `python scripts\install_scanners.py` can still be run by hand (`... install_scanners.py trivy`
+for one).
 
 Why a separate `.scanners` folder: Semgrep pins old `opentelemetry` / `protobuf` / `mcp` versions; installed into the
-API's `.venv` it downgrades them and breaks FastAPI and the Google / LangChain packages.
+API's venv it downgrades them and breaks FastAPI and the Google / LangChain packages – and a copy found in the
+API's venv is never used.
 
 ## API
 

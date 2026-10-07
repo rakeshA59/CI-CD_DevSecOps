@@ -3,11 +3,11 @@ Guided DevOps Graph Builder (mode = "guided") – the Architect's flow, run loca
 
     checkout_agent → planner_agent → questionnaire_agent (⏸ answers) → pipeline_designer
         → [derived stages, routed on execution_plan like the quick graph]
-          security_agent → component lanes (build · test · package · image) → lanes_done
+          security_agent → security_review (⏸ HITL) → component lanes (build · test · package · image) → lanes_done
           → release_agent → deploy_agent (dev) → functional_test_agent → ui_test_agent (Selenium) → publish_tests_agent
           → approval_gate (⏸ approve / reject) → uat_deploy_agent → report_agent → END
 
-The two ⏸ nodes call LangGraph `interrupt()`; the run's state is kept by the checkpointer (thread_id = task_id)
+The three ⏸ nodes call LangGraph `interrupt()`; the run's state is kept by the checkpointer (thread_id = task_id)
 and resumed with `Command(resume=...)` from the API. The quick graph (pipeline_graph_builder) is unchanged.
 """
 
@@ -30,6 +30,7 @@ from agents.questionnaire_agent import QuestionnaireAgent
 from agents.release_agent import ReleaseAgent
 from agents.report_agent import ReportAgent
 from agents.security_agent import SecurityAgent
+from agents.security_review_agent import SecurityReviewAgent
 from agents.ui_test_agent import UITestAgent
 from graph_builders.lane_graph_builder import get_lane_graph
 from graph_builders.pipeline_graph_builder import lanes_done, next_node
@@ -38,7 +39,7 @@ _compiled_guided_graph = None
 _lock = asyncio.Lock()
 # In-memory checkpointer: paused runs survive while the API runs (a MongoDB checkpointer is the production step).
 CHECKPOINTER = MemorySaver()
-STAGE_NODES = ["security_agent", "release_agent", "deploy_agent", "functional_test_agent", "ui_test_agent", "publish_tests_agent",
+STAGE_NODES = ["security_agent", "security_review", "release_agent", "deploy_agent", "functional_test_agent", "ui_test_agent", "publish_tests_agent",
                "approval_gate", "uat_deploy_agent", "report_agent"]
 
 
@@ -56,6 +57,7 @@ def build_guided_graph():
     workflow.add_node("questionnaire_agent", QuestionnaireAgent().run, metadata={"alias": "DevOps Consultant"})
     workflow.add_node("pipeline_designer", PipelineDesignerAgent().run, metadata={"alias": "Pipeline Architect"})
     workflow.add_node("security_agent", SecurityAgent().run, metadata={"alias": "Security Engineer"})
+    workflow.add_node("security_review", SecurityReviewAgent().run, metadata={"alias": "Security Reviewer"})
     workflow.add_node("component_lane", component_lane, metadata={"alias": "Component Lane"})
     workflow.add_node("lanes_done", lanes_done)
     workflow.add_node("release_agent", ReleaseAgent().run, metadata={"alias": "Release Engineer"})

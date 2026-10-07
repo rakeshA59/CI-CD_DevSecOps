@@ -1,6 +1,6 @@
 # CI-CD_DevSecOps – agentic CI/CD pipeline
 
-Agentic edition of CIP: LangGraph agents behind FastAPI, MCP servers for scanning and Docker, MongoDB for run records, and a React app.
+DevOps (agentic CI/CD, formerly CIP): LangGraph agents behind FastAPI, MCP servers for scanning and Docker, MongoDB for run records, and a React app.
 
 ```
 CI-CD_DevSecOps/

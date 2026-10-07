@@ -1,9 +1,9 @@
 """
-Install every scanner CIP uses into cip-api/.scanners – no admin rights, nothing added to the API's .venv.
+Install every scanner DevOps uses into cip-api/.scanners – no admin rights, nothing added to the API's venv.
 
-    .venv\\Scripts\\python scripts\\install_scanners.py            # all of them except CodeQL
-    .venv\\Scripts\\python scripts\\install_scanners.py --codeql   # + CodeQL bundle (~1 GB download)
-    .venv\\Scripts\\python scripts\\install_scanners.py gitleaks trivy   # only these
+    python scripts\\install_scanners.py            # all of them except CodeQL
+    python scripts\\install_scanners.py --codeql   # + CodeQL bundle (~1 GB download)
+    python scripts\\install_scanners.py gitleaks trivy   # only these
 
     .scanners\\Scripts\\   semgrep, bandit, ruff, pip-audit   (own venv, from requirements-scanners.txt)
     .scanners\\bin\\       gitleaks, trivy, osv-scanner, trufflehog, snyk   (latest GitHub release binaries)
@@ -115,13 +115,14 @@ def install_binary(tool: str) -> str:
     return str(target)
 
 
-def install_python_tools() -> str:
+def install_python_tools(force: bool = False) -> str:
     py = HOME / ("Scripts/python.exe" if OS == "windows" else "bin/python")
     if not py.exists():
         print("  creating the .scanners venv...", flush=True)
         venv.EnvBuilder(with_pip=True).create(HOME)
     subprocess.run([str(py), "-m", "pip", "install", "--upgrade", "pip", "-q"], check=False)
-    subprocess.run([str(py), "-m", "pip", "install", "-r", str(API_DIR / "requirements-scanners.txt")], check=True)
+    subprocess.run([str(py), "-m", "pip", "install", *(["--force-reinstall"] if force else []),
+                    "-r", str(API_DIR / "requirements-scanners.txt")], check=True)
     return str(py.parent)
 
 

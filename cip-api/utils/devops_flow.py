@@ -28,7 +28,7 @@ def stage_catalog() -> dict[str, dict]:
 def why_of(step_id: str) -> str:
     """The catalogue's reason for the stage a step belongs to."""
     head = step_id.split(".")[0]
-    stage = {"scan": "scan", "security_gate": "scan", "build": "build_test_package", "test": "build_test_package",
+    stage = {"scan": "scan", "security_gate": "security_review", "build": "build_test_package", "test": "build_test_package",
              "test_gate": "build_test_package", "package": "build_test_package", "image": "build_test_package",
              "container_gate": "build_test_package", "release": "release", "deploy": "deploy_dev",
              "functional": "functional_tests", "functional_gate": "functional_tests", "ui_tests": "ui_tests", "ui_gate": "ui_tests", "publish_tests": "publish_tests",

@@ -19,8 +19,10 @@ install it – the run continues.
 
 import asyncio
 import base64
+import importlib.util
 import json
 import os
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -33,8 +35,12 @@ SCANNER_HOME = Path(__file__).resolve().parents[3] / ".scanners"
 SEVERITIES = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]
 _SEV = {"ERROR": "HIGH", "WARNING": "MEDIUM", "WARN": "MEDIUM", "NOTE": "LOW", "MODERATE": "MEDIUM",
         "INFORMATIONAL": "INFO", "UNKNOWN": "LOW", "BLOCKER": "CRITICAL", "MAJOR": "MEDIUM", "MINOR": "LOW"}
-INSTALL_HINT = "run: .venv\\Scripts\\python scripts\\install_scanners.py (or start Docker for the image fallback)"
-PIP_HINT = "run: .scanners\\Scripts\\pip install -r requirements-scanners.txt"
+INSTALL_HINT = "run: python scripts\\install_scanners.py (or start Docker for the image fallback)"
+# Python scanners live in their own venv (.scanners) only – semgrep's pinned libraries break the API's venv and the
+# API's libraries break semgrep, so a copy in the API's venv is never used.
+PY_TOOLS = {"semgrep", "bandit", "ruff", "pip-audit"}
+INSTALL_AS = {**{t: "python" for t in PY_TOOLS}, "trivy-fs": "trivy", "osv-scanner": "osv-scanner", "gitleaks": "gitleaks",
+              "trufflehog": "trufflehog", "snyk": "snyk"}      # scanner → what install_scanners.py installs for it
 
 
 # ------------------------------------------------------------------ helpers
@@ -72,7 +78,7 @@ def find_tool(binary: str) -> str | None:
         found = shutil.which(binary, path=str(SCANNER_HOME / folder))
         if found:
             return found
-    return shutil.which(binary)
+    return None if binary in PY_TOOLS else shutil.which(binary)
 
 
 async def _run(argv: list[str], cwd: str | None = None, timeout: int = 1500, extra_env: dict | None = None):
@@ -137,14 +143,14 @@ def _components(path: str, ctx: dict, *languages: str) -> list[Path]:
 
 # ------------------------------------------------------------------ SAST
 async def semgrep(path: str, ctx: dict) -> dict:
-    """Semgrep rule sets for the repo's languages; bundled CIP rules when the registry is unreachable."""
+    """Semgrep rule sets for the repo's languages; bundled DevOps rules when the registry is unreachable."""
     configs = ctx.get("semgrep_configs") or ["p/default"]
     args = ["scan", "--json", "--quiet", "--metrics=off", "--disable-version-check"]
     for c in configs:
         args += ["--config", c]
     res = await _tool("semgrep", args + ["{src}"], path, "semgrep/semgrep")
     if res is None:
-        return skipped("semgrep", f"semgrep not installed – {PIP_HINT}")
+        return skipped("semgrep", f"semgrep not installed – {INSTALL_HINT}")
     data = _json(res[1], {})
     note = ""
     if not data.get("results") and (data.get("errors") or not data):
@@ -156,7 +162,7 @@ async def semgrep(path: str, ctx: dict) -> dict:
         data = _json(res2[1], None) if res2 else None
         if data is None:
             return result("semgrep", status="error", message=(res[2] or res[1])[-500:] or "semgrep produced no output")
-        note = " (bundled CIP rules – the Semgrep registry was unreachable)"
+        note = " (bundled DevOps rules – the Semgrep registry was unreachable)"
     findings = [finding("semgrep", "sast", sev(r["extra"].get("severity"), "LOW"), r["extra"].get("message", ""),
                         file=_rel(r["path"], path), line=r["start"]["line"], rule_id=r["check_id"].split(".")[-1],
                         description=r["extra"].get("message", ""), recommendation=r["extra"].get("fix") or "",
@@ -171,7 +177,7 @@ async def bandit(path: str, ctx: dict) -> dict:
     skip = ",".join(f"*/{d}/*" for d in ("node_modules", ".venv", "venv", ".cip-venv", ".git", "tests", "test", ".cip"))
     res = await _tool("bandit", ["-r", "{src}", "-f", "json", "-q", "-x", skip], path)
     if res is None:
-        return skipped("bandit", f"bandit not installed – {PIP_HINT}")
+        return skipped("bandit", f"bandit not installed – {INSTALL_HINT}")
     data = _json(res[1], None)
     if data is None:
         return result("bandit", status="error", message=(res[2] or res[1])[-500:])
@@ -235,7 +241,7 @@ async def ruff(path: str, ctx: dict) -> dict:
                                "--select", "E,F,W,B,S", "--ignore", "E501,W291,W293,S101",
                                "--extend-exclude", ".venv,venv,.cip-venv,node_modules"], path)
     if res is None:
-        return skipped("ruff", f"ruff not installed – {PIP_HINT}")
+        return skipped("ruff", f"ruff not installed – {INSTALL_HINT}")
     data = _json(res[1], None)
     if data is None:
         return result("ruff", status="error", message=(res[2] or res[1])[-500:])
@@ -360,7 +366,7 @@ async def pip_audit(path: str, ctx: dict) -> dict:
             continue
         res = await _tool("pip-audit", args + ["-f", "json", "--progress-spinner", "off", "--desc", "on"], path, timeout=1500)
         if res is None:
-            return skipped("pip-audit", f"pip-audit not installed – {PIP_HINT}")
+            return skipped("pip-audit", f"pip-audit not installed – {INSTALL_HINT}")
         ran = True
         data = _json(res[1], None)
         if data is None:
@@ -479,7 +485,8 @@ async def trufflehog(path: str, ctx: dict) -> dict:
 # ------------------------------------------------------------------ platforms
 async def sonarqube(path: str, ctx: dict) -> dict:
     """sonar-scanner against your SonarQube server; issues + quality gate read back."""
-    host, token = env("sonar_host_url").rstrip("/"), env("sonar_token")
+    host = (ctx.get("sonar_host_url") or env("sonar_host_url")).rstrip("/")
+    token = ctx.get("sonar_token") or env("sonar_token")
     if not host or not token:
         return skipped("sonarqube", "set sonar_host_url and sonar_token in .env "
                                     "(local server: docker run -d --name sonarqube -p 9000:9000 sonarqube:community)")
@@ -594,28 +601,130 @@ async def list_scanners() -> dict:
     for name, (_, label, category, when) in CATALOG.items():
         exe = binary.get(name, name)
         out.append({"name": name, "label": label, "category": category, "default_when": when, "configured": available(name),
-                    "installed": True if exe is None else bool(find_tool(exe))})
+                    "installed": True if exe is None else bool(find_tool(exe)), "repairable": name in INSTALL_AS})
     return {"scanners": out}
 
 
-def default_scanners(languages: set[str], github: bool) -> list[str]:
+# ── One tool per scan type ──────────────────────────────────────────────────────────────────────────────────────
+# For each type the first option that fits the tech stack and is set up on this machine is used (deterministic, so a
+# run is reproducible); the questionnaire / run form can override the pick. When the picked tool cannot run (e.g. no
+# internet for its database) the security agent runs its fallback instead.
+SCAN_TYPES = {
+    "sast": ("SAST (code)", ["sonarqube", "codeql", "semgrep", "bandit"]),
+    "sca": ("SCA (dependencies + IaC)", ["snyk", "trivy-fs", "osv-scanner", "npm-audit", "pip-audit"]),
+    "secrets": ("Secrets", ["gitleaks", "trufflehog"]),
+}
+QUALITY = {"ruff": "Python", "eslint": "Node"}            # code-quality lint: one per language, never blocks the gate
+FALLBACK = {"sonarqube": ["semgrep"], "codeql": ["semgrep"], "snyk": ["trivy-fs"], "trivy-fs": ["npm-audit", "pip-audit"],
+            "osv-scanner": ["npm-audit", "pip-audit"], "gitleaks": ["trufflehog"]}
+CODEQL_LANGS = {"JavaScript", "TypeScript", "Python", "Java", "Go", "C#", "C++", "Ruby", "Kotlin", "Swift"}
+NEEDS = {"bandit": "Python", "pip-audit": "Python", "ruff": "Python", "npm-audit": "Node", "eslint": "Node"}
+SETUP = {"sonarqube": "no SonarQube server configured (sonar_host_url + sonar_token)",
+         "codeql": "the CodeQL CLI is not installed (install_scanners.py --codeql)",
+         "snyk": "no snyk_token configured", "github-alerts": "no github_token configured"}
+
+
+def fits(name: str, languages: set[str]) -> bool:
+    """The tool covers the repository's languages."""
     node = bool(languages & {"JavaScript", "TypeScript"})
-    pick = []
-    for name, (_, _, _, when) in CATALOG.items():
-        if when == "always" or (when == "Python" and "Python" in languages) or (when == "Node" and node) \
-                or (when in ("installed", "configured") and available(name) and (name != "github-alerts" or github)):
-            pick.append(name)
-    return pick
+    need = NEEDS.get(name)
+    if need == "Python":
+        return "Python" in languages
+    if need == "Node":
+        return node
+    if name == "codeql":
+        return bool(languages) and languages <= CODEQL_LANGS
+    return True
+
+
+def pick_scanners(languages: set[str], github: bool, override: dict | None = None) -> list[dict]:
+    """The scan plan: [{type, label, tool, tool_label, reason, fallback}] – one tool per type + lint per language."""
+    plan, langs = [], ", ".join(sorted(languages)) or "no detected language"
+    for t, (label, options) in SCAN_TYPES.items():
+        want = (override or {}).get(t)
+        if want and want != "auto" and want in CATALOG and fits(want, languages):
+            tool, reason = want, f"chosen in the questionnaire / run form (stack: {langs})"
+        else:
+            skipped = []
+            tool = None
+            for n in options:
+                if not fits(n, languages):
+                    skipped.append(f"{CATALOG[n][1]} does not cover {langs}")
+                elif not available(n):
+                    skipped.append(f"{CATALOG[n][1]}: {SETUP.get(n, 'not set up')}")
+                else:
+                    tool = n
+                    break
+            if not tool:
+                continue
+            reason = f"best available for {langs}" + (f" – {'; '.join(skipped)}" if skipped else "")
+        plan.append({"type": t, "label": label, "tool": tool, "tool_label": CATALOG[tool][1], "reason": reason,
+                     "fallback": [f for f in FALLBACK.get(tool, []) if fits(f, languages)]})
+    for tool, lang in QUALITY.items():
+        if fits(tool, languages):
+            plan.append({"type": "quality", "label": "Code quality (lint, never blocks)", "tool": tool,
+                         "tool_label": CATALOG[tool][1], "reason": f"the linter for {lang}", "fallback": []})
+    if github and available("github-alerts"):
+        plan.append({"type": "platform", "label": "Platform alerts", "tool": "github-alerts",
+                     "tool_label": CATALOG["github-alerts"][1], "reason": "GitHub repository with a token", "fallback": []})
+    return plan
+
+
+def default_scanners(languages: set[str], github: bool, override: dict | None = None) -> list[str]:
+    """The tools of the scan plan (one per type)."""
+    return [p["tool"] for p in pick_scanners(languages, github, override)]
+
+
+def cause(text: str) -> str:
+    """The line that says what went wrong (e.g. "ImportError: …"), not the cut-off end of a traceback."""
+    lines = [ln.strip() for ln in str(text or "").splitlines() if ln.strip()]
+    hits = [ln for ln in lines if re.search(r"(Error|Exception|error:|not found|denied|failed)", ln)]
+    return (hits[-1] if hits else lines[-1] if lines else "")[:300]
 
 
 async def run_scanner(name: str, path: str, context: dict | None = None) -> dict:
-    """Run one scanner of the catalogue on a folder; a crash becomes an `error` result, never an exception."""
+    """Run one scanner of the catalogue on a folder; a crash becomes an `error` result, never an exception.
+    An error keeps the cause line as message and the raw output as `log` (read by the self-healing)."""
     if name not in CATALOG:
         return result(name, status="error", message=f"unknown scanner (known: {', '.join(CATALOG)})")
     try:
-        return await CATALOG[name][0](path, context or {})
+        res = await CATALOG[name][0](path, context or {})
     except Exception as e:  # noqa: BLE001 – one broken scanner must not stop the others
-        return result(name, status="error", message=f"{type(e).__name__}: {e}")
+        res = result(name, status="error", message=f"{type(e).__name__}: {e}")
+    if res["status"] == "error":
+        res = {**res, "message": cause(res["message"]) or res["message"][:300], "log": res["message"][-4000:]}
+    return res
 
 
-SCANNERS = {"run_scanner": run_scanner, "list_scanners": list_scanners, "trivy_image_scan": trivy_image_scan}
+_install_lock = asyncio.Lock()
+
+
+def _installer():
+    """scripts/install_scanners.py, loaded as a module (it is also a command-line script)."""
+    spec = importlib.util.spec_from_file_location("install_scanners", Path(__file__).resolve().parents[3] / "scripts" / "install_scanners.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+async def ensure_scanner(name: str, force: bool = False) -> dict:
+    """Self-healing: install a missing scanner into .scanners, or reinstall a broken one (force)."""
+    target, exe = INSTALL_AS.get(name), {"trivy-fs": "trivy"}.get(name, name)
+    if not target:
+        return {"ok": False, "message": f"{name} cannot be installed automatically"}
+    if find_tool(exe) and not force:
+        return {"ok": True, "message": f"{name} is installed"}
+    async with _install_lock:                        # semgrep / bandit / ruff / pip-audit share one venv
+        if find_tool(exe) and not force:
+            return {"ok": True, "message": f"{name} is installed"}
+        try:
+            inst = _installer()
+            where = await asyncio.to_thread(inst.install_python_tools, force) if target == "python" else \
+                await asyncio.to_thread(inst.install_binary, target)
+        except Exception as e:  # noqa: BLE001 – no network, no permission … → the next healing step takes over
+            return {"ok": False, "message": cause(str(e)) or str(e)}
+    return {"ok": bool(find_tool(exe)), "message": f"{'reinstalled' if force else 'installed'} into {where}"}
+
+
+SCANNERS = {"run_scanner": run_scanner, "list_scanners": list_scanners, "trivy_image_scan": trivy_image_scan,
+            "ensure_scanner": ensure_scanner}

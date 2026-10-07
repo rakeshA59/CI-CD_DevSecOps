@@ -19,25 +19,32 @@ from mcp_services.mcp_servers.docker_mcp.docker_ops import DOCKER_OPS
 from mcp_services.mcp_servers.scanner_mcp.scanners import SCANNERS
 
 
+def ipv4(url: str) -> str:
+    """localhost → 127.0.0.1: on Windows "localhost" is tried as IPv6 (::1) first and the MCP servers listen on IPv4
+    only, so the check timed out before reaching them – they looked down and the tools ran in-process."""
+    return url.replace("://localhost", "://127.0.0.1")
+
+
+async def reachable(url: str) -> bool:
+    """Quick TCP check of an MCP server, so a stopped server costs milliseconds, not a timeout."""
+    u = urlparse(ipv4(url))
+    try:
+        _, w = await asyncio.wait_for(asyncio.open_connection(u.hostname, u.port or 80), timeout=1)
+        w.close()
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
 class MCPToolClient:
     def __init__(self, server_url: str, local_tools: Dict[str, Callable]):
-        self.server_url = server_url
+        self.server_url = ipv4(server_url)
         self.local_tools = local_tools
         self.last_transport = ""
 
-    async def _reachable(self) -> bool:
-        """Quick TCP check, so a stopped server costs milliseconds, not a timeout."""
-        u = urlparse(self.server_url)
-        try:
-            _, w = await asyncio.wait_for(asyncio.open_connection(u.hostname, u.port or 80), timeout=1)
-            w.close()
-            return True
-        except Exception:  # noqa: BLE001
-            return False
-
     async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """Call the tool via MCP (SSE); fall back to the in-process implementation."""
-        if await self._reachable():
+        if await reachable(self.server_url):
             try:
                 async with sse_client(self.server_url, timeout=5, sse_read_timeout=1800) as (read, write):
                     async with ClientSession(read, write) as session:

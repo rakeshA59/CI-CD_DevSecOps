@@ -179,7 +179,7 @@ class PlannerAgent:
                        f"■ {c['name']}: {c['language']} {c['framework']} ({c['kind']}) – build: {' && '.join(c['build_commands']) or '-'}"
                        f" · tests: {c['test_command'] or 'none'}")
         opts = state.get("options") or {}
-        execution_plan = [{"name": "security_agent"}]
+        execution_plan = [{"name": "security_agent"}, {"name": "security_review"}]
         if plan:
             execution_plan.append({"name": "component_lanes"})
         if opts.get("deploy", True) and opts.get("containerize", True) and any(c["deployable"] for c in plan):

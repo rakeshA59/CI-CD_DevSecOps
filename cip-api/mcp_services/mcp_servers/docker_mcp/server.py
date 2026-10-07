@@ -10,7 +10,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp_services.mcp_servers.docker_mcp import docker_ops
 
 logging.basicConfig(level=logging.INFO)
-mcp = FastMCP("CIP Docker MCP Server", host="0.0.0.0", port=8052)
+mcp = FastMCP("DevOps Docker MCP Server", host="0.0.0.0", port=8052)
 
 
 @mcp.tool()
@@ -26,9 +26,11 @@ async def docker_build(context: str, tag: str, dockerfile: str = "Dockerfile") -
 
 
 @mcp.tool()
-async def docker_run(image: str, name: str, network: str, port: int, env: dict | None = None, alias: str = "") -> dict:
-    """Run an image on a private network, publish its port and wait until it answers HTTP."""
-    return await docker_ops.docker_run(image, name, network, port, env, alias)
+async def docker_run(image: str, name: str, network: str, port: int, env: dict | None = None, alias: str = "",
+                     keep: bool = False) -> dict:
+    """Run an image on a private network, publish its port and wait until it answers HTTP.
+    keep=true restarts it whenever Docker restarts (UAT)."""
+    return await docker_ops.docker_run(image, name, network, port, env, alias, keep)
 
 
 @mcp.tool()

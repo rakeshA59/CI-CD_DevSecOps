@@ -68,7 +68,7 @@ def write_pdf(state: dict, out: Path) -> Path:
         return Paragraph(f"<font color='{COLOR.get(word, '#555')}'><b>{_t(str(word).upper())}</b></font>", s["b"])
 
     rep, info = state.get("report") or {}, state.get("source_info") or {}
-    story = [Paragraph("CI/CD pipeline report", s["h1"]),
+    story = [Paragraph("DevOps pipeline report", s["h1"]),
              Paragraph(_t(f"{state.get('source')} · {info.get('type', '')} · {info.get('branch', '')} {info.get('commit', '')[:10]} · "
                           f"task {state.get('task_id')} · LLM {state.get('provider')}"), s["b"]), Spacer(1, 4 * mm),
              Paragraph(f"Overall: <font color='{COLOR.get(rep.get('overall'), '#555')}'><b>{_t(rep.get('overall'))}</b></font>", s["h2"])]
@@ -121,5 +121,5 @@ def write_pdf(state: dict, out: Path) -> Path:
                 [17 * mm, W - 102 * mm, 45 * mm, 40 * mm]))
     out.parent.mkdir(parents=True, exist_ok=True)
     SimpleDocTemplate(str(out), pagesize=A4, leftMargin=15 * mm, rightMargin=15 * mm, topMargin=14 * mm, bottomMargin=14 * mm,
-                      title=f"CIP report {state.get('task_id')}").build(story)
+                      title=f"DevOps report {state.get('task_id')}").build(story)
     return out

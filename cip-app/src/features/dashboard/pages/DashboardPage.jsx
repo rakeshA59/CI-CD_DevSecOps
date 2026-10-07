@@ -62,7 +62,7 @@ export default function DashboardPage() {
     const t = data?.totals || {};
     const runs = data?.runs || [];
     return (
-        <div className="mx-auto max-w-[1600px] space-y-4">
+        <div className="w-full space-y-4">
             <div className="flex items-center gap-2">
                 <LayoutDashboard className="text-primary size-5" />
                 <h1 className="text-lg font-bold">DevOps dashboard</h1>

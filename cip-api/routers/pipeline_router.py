@@ -10,16 +10,18 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 
 from agents.checkout_agent import is_remote
 from graph_builders.pipeline_graph_builder import graph_outline
+from mcp_services.mcp_clients.mcp_tool_client import scanner_client
 from mcp_services.mcp_servers.docker_mcp.docker_ops import running_apps
 from mcp_services.mcp_servers.scanner_mcp.scanners import list_scanners
 from core.settings import RUNS_DIR
 from models.pipeline_models import ApprovalDecision, QuestionnaireAnswers, StartPipelineRequest
 from repositories.pipeline_repository import PipelineRepository
 from services.pipeline_service import RUNNING, PipelineService, run_key
+from services.step_report_html import render_step_report, step_docs
 from services.stream_event_writer import stream_writer
 
 router = APIRouter(prefix="/pipelines", tags=["Pipelines"])
@@ -52,6 +54,18 @@ async def start_pipeline(req: StartPipelineRequest) -> Any:
 async def scanners() -> Any:
     """The scanner catalogue with what is installed / configured on this machine (for the run form)."""
     return await list_scanners()
+
+
+@router.post("/scanners/{name}/repair")
+async def repair_scanner(name: str) -> Any:
+    """Settings → Scanners → Repair: (re)install one scanner into .scanners."""
+    return await scanner_client().call_tool("ensure_scanner", {"name": name, "force": True})
+
+
+@router.get("/step-docs")
+async def get_step_docs() -> Any:
+    """What every step and scanner is (the ⓘ hover cards)."""
+    return step_docs()
 
 
 @router.get("/dashboard")
@@ -101,6 +115,16 @@ async def get_pipeline(task_id: str) -> Any:
     return run
 
 
+@router.get("/{task_id}/steps/{step_id}/report.html", response_class=HTMLResponse)
+async def step_report(task_id: str, step_id: str) -> Any:
+    """Full report of one step: what / why / tool / how / expected, stage report, results, commands, reasoning, logs."""
+    run = await PipelineRepository().get_run(task_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="run not found")
+    events = await stream_writer.read(task_id, 0, 20000)
+    return HTMLResponse(render_step_report(run, step_id, events))
+
+
 @router.post("/{task_id}/stop")
 async def stop_pipeline(task_id: str) -> Any:
     """Stop a running or paused run; its containers are removed, its finished stages are kept."""
@@ -148,8 +172,10 @@ async def answer_questionnaire(task_id: str, body: QuestionnaireAnswers) -> Any:
 
 @router.post("/{task_id}/approval")
 async def approve(task_id: str, body: ApprovalDecision) -> Any:
-    """Resume a guided run that waits for the approval before UAT."""
-    return await _resume(task_id, "approval", body.model_dump())
+    """Resume a run that waits for a human decision: the security review (HITL) or the approval before UAT."""
+    run = await PipelineRepository().get_run(task_id) or {}
+    kind = "security_review" if (run.get("pending") or {}).get("type") == "security_review" else "approval"
+    return await _resume(task_id, kind, body.model_dump())
 
 
 async def _resume(task_id: str, kind: str, payload: dict) -> Any:

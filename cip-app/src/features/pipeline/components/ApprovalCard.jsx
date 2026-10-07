@@ -7,13 +7,64 @@ import { Input } from '@/shared/ui/input';
 import StatusBadge from '@/shared/components/StatusBadge';
 import usePipelineStore from '../store/usePipelineStore';
 
-/** Guided flow – human in the loop: the run waits until a reviewer approves or rejects the UAT deploy. */
+/** Security review: the gate checks, findings per scanner and the most serious findings. */
+function SecuritySummary({ sm }) {
+    return (
+        <div className="space-y-2">
+            <div className="flex flex-wrap gap-2">
+                <StatusBadge
+                    status={sm.gate_passed ? 'passed' : 'failed'}
+                    label={`security gate: ${sm.gate_passed ? 'PASS' : 'FAIL'}`}
+                />
+                {(sm.checks || [])
+                    .filter((c) => !c.passed)
+                    .map((c) => (
+                        <StatusBadge
+                            key={c.name}
+                            status="failed"
+                            label={`${c.name} = ${c.actual} (needs ${c.required})`}
+                        />
+                    ))}
+            </div>
+            {Object.keys(sm.per_scanner || {}).length > 0 && (
+                <div className="text-muted-foreground text-xs">
+                    {Object.entries(sm.per_scanner)
+                        .map(
+                            ([name, c]) =>
+                                `${name}: ${c.CRITICAL} critical · ${c.HIGH} high · ${c.MEDIUM} medium`
+                        )
+                        .join('   |   ')}
+                </div>
+            )}
+            {sm.top?.length > 0 && (
+                <ul className="space-y-0.5 text-xs">
+                    {sm.top.map((f, i) => (
+                        <li key={i}>
+                            <span className="font-semibold">{f.severity}</span> · {f.scanner} ·{' '}
+                            {f.title}{' '}
+                            <span className="text-muted-foreground font-mono">
+                                {f.file}
+                                {f.line ? `:${f.line}` : ''}
+                            </span>
+                        </li>
+                    ))}
+                </ul>
+            )}
+        </div>
+    );
+}
+
+/** Human in the loop: the run waits until a reviewer approves or rejects –
+ *  the security reports (after the scans, both flows) or the UAT deploy (guided flow). */
 export default function ApprovalCard() {
     const { run, resume } = usePipelineStore();
     const [by, setBy] = useState('');
     const [comment, setComment] = useState('');
     const [sending, setSending] = useState(false);
-    if (run?.status !== 'WAITING_APPROVAL' || run?.pending?.type !== 'approval') return null;
+    const type = run?.pending?.type;
+    if (run?.status !== 'WAITING_APPROVAL' || !['approval', 'security_review'].includes(type))
+        return null;
+    const security = type === 'security_review';
     const sm = run.pending.summary || {};
 
     const decide = async (decision) => {
@@ -21,9 +72,13 @@ export default function ApprovalCard() {
         try {
             await resume('approval', { decision, by: by || 'reviewer', comment });
             toast.success(
-                decision === 'approve'
-                    ? 'Approved – deploying to UAT'
-                    : 'Rejected – UAT deploy skipped'
+                security
+                    ? decision === 'approve'
+                        ? 'Approved – the pipeline continues'
+                        : 'Rejected – the pipeline stops and writes its report'
+                    : decision === 'approve'
+                      ? 'Approved – deploying to UAT'
+                      : 'Rejected – UAT deploy skipped'
             );
         } catch (e) {
             toast.error(e.message);
@@ -36,14 +91,19 @@ export default function ApprovalCard() {
         <Card className="gap-3 border-amber-500/50 py-4">
             <CardHeader className="px-4">
                 <CardTitle className="flex items-center gap-2">
-                    <ShieldQuestion className="size-5 text-amber-500" /> Approval needed before{' '}
-                    {String(run.pending.target).toUpperCase()}
+                    <ShieldQuestion className="size-5 text-amber-500" />
+                    {security
+                        ? 'HITL – review the security reports'
+                        : `Approval needed before ${String(run.pending.target).toUpperCase()}`}
                 </CardTitle>
                 <CardDescription>
-                    Review the stage reports below, then approve or reject the deployment.
+                    {security
+                        ? 'The scans are done. Review the findings (click a scanner in the pipeline for its report), then approve to continue or reject to stop the pipeline.'
+                        : 'Review the stage reports below, then approve or reject the deployment.'}
                 </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3 px-4 text-sm">
+                {security && <SecuritySummary sm={sm} />}
                 <div className="flex flex-wrap gap-2">
                     {Object.entries(sm.gates || {}).map(([k, ok]) => (
                         <StatusBadge
@@ -85,7 +145,8 @@ export default function ApprovalCard() {
                 </div>
                 <div className="flex gap-2">
                     <Button onClick={() => decide('approve')} disabled={sending} className="gap-2">
-                        <Check className="size-4" /> Approve UAT deploy
+                        <Check className="size-4" />{' '}
+                        {security ? 'Approve – continue the pipeline' : 'Approve UAT deploy'}
                     </Button>
                     <Button
                         variant="outline"
@@ -93,7 +154,8 @@ export default function ApprovalCard() {
                         disabled={sending}
                         className="gap-2"
                     >
-                        <X className="size-4" /> Reject
+                        <X className="size-4" />{' '}
+                        {security ? 'Reject – stop the pipeline' : 'Reject'}
                     </Button>
                 </div>
             </CardContent>

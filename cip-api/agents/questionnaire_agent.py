@@ -16,6 +16,7 @@ from langgraph.types import interrupt
 from agent_states.pipeline_state import PipelineState
 from services.stream_event_writer import StreamStatus
 from utils.agent_events import emit, step_record
+from mcp_services.mcp_servers.scanner_mcp.scanners import pick_scanners
 from utils.devops_flow import flow_config
 
 CI_FILES = {".gitlab-ci.yml": "gitlab", "Jenkinsfile": "jenkins", ".github/workflows": "github_actions",
@@ -52,6 +53,7 @@ def discover(ws: Path, components: list[dict]) -> dict:
 def questions(detected: dict) -> list[dict]:
     """The questionnaire with values pre-filled from discovery (and a note saying where each value came from)."""
     out = []
+    picks = {p["type"]: p for p in pick_scanners(set(detected["languages"]), bool(detected.get("github")))}
     for q in flow_config()["questionnaire"]:
         q = {**q, "options": [dict(o) for o in q.get("options", [])]}
         value, note = q.get("default"), ""
@@ -68,6 +70,9 @@ def questions(detected: dict) -> list[dict]:
             value = ["unit"] + (["functional"] if detected["deployable"] else []) + (["ui"] if web else [])
             note = ("unit tests found in the repo" if detected["has_tests"] else "no unit tests found – the test agent can write them (LLM)") + (
                 " · web front-end found → browser tests" if web else "")
+        elif q.get("prefill") == "scan_tool" and picks.get(q["id"].removesuffix("_tool")):
+            p = picks[q["id"].removesuffix("_tool")]
+            note = f"agent's pick: {p['tool_label']} – {p['reason']}"
         out.append({**q, "value": value, "note": note})
     return out
 

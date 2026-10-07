@@ -41,8 +41,8 @@ GATES = {
 }
 
 # MCP servers (SSE). When a server is not running, the client calls the same functions in-process.
-SCANNER_MCP_URL = env("scanner_mcp_url", "http://localhost:8051/sse")
-DOCKER_MCP_URL = env("docker_mcp_url", "http://localhost:8052/sse")
+SCANNER_MCP_URL = env("scanner_mcp_url", "http://127.0.0.1:8051/sse")
+DOCKER_MCP_URL = env("docker_mcp_url", "http://127.0.0.1:8052/sse")
 
 # Selenium (UI browser tests): Chrome is found automatically and Selenium Manager downloads the matching driver.
 # Set these only for a portable Chrome / an offline driver.

@@ -28,7 +28,8 @@ from services.stream_event_writer import StreamStatus, stream_writer
 from utils.stage_reports import stage_summary, with_reports
 
 RUNNING: dict[str, asyncio.Task] = {}
-WAITING = {"questionnaire": "WAITING_INPUT", "approval": "WAITING_APPROVAL"}
+WAITING = {"questionnaire": "WAITING_INPUT", "approval": "WAITING_APPROVAL", "security_review": "WAITING_APPROVAL"}
+PAUSED_FOR = {"questionnaire": "your answers to the questionnaire", "security_review": "a human review of the security reports (HITL)"}
 
 
 def run_key(task_id: str) -> str:
@@ -61,14 +62,14 @@ class PipelineService:
         return {"task_id": task_id, "provider": provider, "mode": mode}
 
     async def resume(self, task_id: str, kind: str, payload: dict) -> dict:
-        """Continue a paused guided run with the questionnaire answers or the approval decision."""
+        """Continue a paused run with the questionnaire answers or a review / approval decision."""
         run = await self.repository.get_run(task_id)
         if not run:
             raise LookupError("run not found")
         if task_id in RUNNING or run.get("status") != WAITING.get(kind):
             raise ValueError(f"run is {run.get('status')}, not waiting for {kind}")
         await self.repository.update_run(task_id, {"status": "RUNNING", "pending": None})
-        RUNNING[task_id] = asyncio.create_task(self._execute(task_id, Command(resume=payload), "guided"))
+        RUNNING[task_id] = asyncio.create_task(self._execute(task_id, Command(resume=payload), run.get("mode") or "quick"))
         return {"task_id": task_id, "resumed": kind}
 
     async def _execute(self, task_id: str, payload, mode: str) -> None:
@@ -77,26 +78,19 @@ class PipelineService:
         if first:
             await stream_writer.push(task_id, "SYSTEM", StreamStatus.SYSTEM_START,
                                      f"Pipeline started for {payload['source']} ({'guided DevOps flow' if mode == 'guided' else 'quick run'})")
-        config = {"recursion_limit": 120, "metadata": {"task_id": task_id}, "configurable": {"thread_id": task_id}}
+        graph = await (get_guided_graph() if mode == "guided" else get_pipeline_graph())
+        config = {"recursion_limit": 120 if mode == "guided" else 60, "metadata": {"task_id": task_id},
+                  "configurable": {"thread_id": task_id}}    # the checkpointer keeps a paused run under its task id
         pending, latest = None, {}
         try:
-            if mode == "guided":
-                graph = await get_guided_graph()
-                await graph.ainvoke(payload, config)
-                snapshot = await graph.aget_state(config)
-                final = snapshot.values
-                pending = next((i.value for t in snapshot.tasks for i in (t.interrupts or [])), None) if snapshot.next else None
-            else:
-                graph = await get_pipeline_graph()
-                # same as ainvoke, but keeps the latest state so a stopped run still shows its finished stages
-                async for latest in graph.astream(payload, {"recursion_limit": 60, "metadata": {"task_id": task_id}},
-                                                  stream_mode="values"):
-                    pass
-                final = latest
+            async for latest in graph.astream(payload, config, stream_mode="values"):   # = ainvoke, keeping the latest state
+                pass
+            snapshot = await graph.aget_state(config)
+            final = snapshot.values
+            pending = next((i.value for t in snapshot.tasks for i in (t.interrupts or [])), None) if snapshot.next else None
             status = WAITING.get((pending or {}).get("type"), "WAITING_INPUT") if pending else "COMPLETED"
         except asyncio.CancelledError:                    # Stop button
-            if mode == "guided":
-                latest = (await (await get_guided_graph()).aget_state(config)).values
+            latest = (await graph.aget_state(config)).values or latest
             final, status = {**(payload if first else {}), **latest, "overall": "STOPPED"}, "STOPPED"
             await remove_run_containers(run_key(task_id))
         except Exception as e:  # noqa: BLE001
@@ -114,12 +108,12 @@ class PipelineService:
             "stage_summary": stage_summary(steps), "gates": final.get("gates"), "deploy": final.get("deploy"),
             "report": final.get("report"), "errors": final.get("errors"), "spec": final.get("spec"),
             "answers": final.get("answers"), "detected": final.get("detected"), "release": final.get("release"),
-            "uat": final.get("uat"), "approval": final.get("approval"),
+            "uat": final.get("uat"), "approval": final.get("approval"), "security_review": final.get("security_review"),
             "tests_summary": _tests_summary(steps),
             "findings_by_severity": {s: sum(f["severity"] == s for f in final.get("findings", []) if f.get("category") != "code_quality")
                                      for s in ("CRITICAL", "HIGH", "MEDIUM", "LOW")}})
         if pending:
-            what = "your answers to the questionnaire" if pending["type"] == "questionnaire" else f"approval before {pending.get('target', '').upper()}"
+            what = PAUSED_FOR.get(pending["type"]) or f"approval before {pending.get('target', '').upper()}"
             await stream_writer.push(task_id, "SYSTEM", StreamStatus.SYSTEM_PAUSE, f"PAUSED – waiting for {what}",
                                      data={"status": status, "pending": pending["type"]})
         else:

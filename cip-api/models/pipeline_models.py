@@ -11,6 +11,7 @@ class RunOptions(BaseModel):
     deploy: bool = True
     continue_on_fail: bool = True
     keep_running: bool = False
+    security_review: bool = Field(True, description="pause after the scans until a human approves the security reports (HITL)")
     scanners: Optional[List[str]] = Field(None, description="scanner names to run; empty = defaults for the repo's languages")
 
 

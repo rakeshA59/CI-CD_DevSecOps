@@ -1,0 +1,215 @@
+# What every pipeline step is – shown in the ⓘ hover card and the full step report.
+# Key = step kind (the part of the step id before the first dot; scanners by their name under `scanners`).
+#   what      what the step does, in one or two sentences
+#   why       why the pipeline needs it
+#   tool      the tool(s) it uses
+#   how       how it is done (where it runs, what it reads, what it writes)
+#   expected  what a good result looks like
+#   checks    what exactly is checked / measured
+
+steps:
+  checkout:
+    what: Gets the code into a private workspace for this run – a git clone for a repository URL, a copy for a local folder.
+    why: Every later step works on this copy, so your original folder is never changed and the run is repeatable.
+    tool: git (clone with the token sent as an HTTP header only) / file copy
+    how: Clones the branch (or default branch) into runs/<task>/workspace; for a local folder copies it as it is, without node_modules, venvs or build output.
+    expected: The code is in the workspace; branch and commit are recorded.
+    checks: The repository is reachable, the branch exists, files were copied.
+  plan:
+    what: Reads the code and works out its components – language, framework, kind (web front end / API / library), build and test commands, port, whether it can be deployed.
+    why: The rest of the pipeline is planned from this – which toolchain to install, how to build and test each part, what to containerise.
+    tool: Rules on the build files (package.json, pom.xml, requirements.txt, go.mod …) + the LLM exploring the repository with read / list tools
+    how: A deterministic first plan from the manifests; with an LLM selected the agent reads the repository and corrects commands, ports and test runners.
+    expected: One entry per buildable component with working build and test commands.
+    checks: Every component has a language, build commands and (when tests exist) a test command and report path.
+  questionnaire:
+    what: Asks how this code should be built, tested and delivered – pre-filled from what the code shows – and waits for your answers.
+    why: The pipeline is derived from your answers (deliver as container?, which tests?, UAT?, approval?, self-heal attempts) instead of being fixed.
+    tool: Discovery of Dockerfiles, CI files, Kubernetes / Terraform files + your answers
+    how: The run pauses (human in the loop) until the answers are submitted; answers are validated against the questionnaire.
+    expected: All questions answered.
+    checks: Each answer is one of the allowed options.
+  design:
+    what: Turns the components and your answers into this run's pipeline – which stages run, with which tools, and why any stage is left out.
+    why: Makes the pipeline fit the application and your choices, and documents the reasoning.
+    tool: Deterministic rules on the stage catalogue (config/devops_flow.yml) – no LLM
+    how: Each stage of the catalogue is switched on or off by a rule on the answers and the components; the result is the execution plan the graph follows.
+    expected: A list of stages with tools and MCP servers; skipped stages carry a reason.
+    checks: Container stages only when something is deployable and delivery is container; tests only when selected.
+  security_gate:
+    what: HITL – a human reviews the security reports and the security gate result, then approves (the pipeline continues) or rejects (the pipeline stops and reports).
+    why: Security findings need a human decision – some are accepted risks, some must stop the release.
+    tool: Security gate thresholds (.env gate_critical / gate_high / gate_secrets) + human approval
+    how: Counts critical and high findings and secrets from all scanners (lint never counts), shows them with the top findings, and pauses the run until the reviewer decides.
+    expected: Gate PASS (0 critical, 0 high, 0 secrets by default) and an approval.
+    checks: critical findings <= gate_critical; high findings <= gate_high; secrets <= gate_secrets.
+  build:
+    what: Installs the component's dependencies and compiles it with its own toolchain.
+    why: Proves the code builds from a clean checkout; everything after it (tests, package, image) needs the build output.
+    tool: npm / pip / maven / gradle / go (installed automatically when missing)
+    how: Runs the planned build commands in the component's folder; when a build fails the agent reads the log, fixes the workspace copy and retries (self-healing).
+    expected: Every build command exits with code 0.
+    checks: Exit code of each command; missing tools are installed and the build retried.
+  test:
+    what: Runs the component's unit tests with coverage and reads the report into numbered test cases (TC-UT-…), each explained.
+    why: Proves the code behaves as the developers expect before it is packaged and deployed.
+    tool: The repository's test runner – vitest / jest / pytest / maven surefire / go test – with coverage
+    how: Runs the test command; if no tests run and an LLM is selected, the agent writes tests (marked "written by the agent"); a broken test setup is repaired, never the assertions.
+    expected: All tests pass and line coverage reaches the gate.
+    checks: Each test's assertions (by the test runner); line coverage from the coverage report.
+  test_gate:
+    what: The unit-test quality gate of one component.
+    why: A fixed, explainable pass / fail rule for the unit tests – no LLM involved.
+    tool: Gate thresholds (.env gate_pass_rate, gate_coverage)
+    how: Compares the test summary and coverage of the component with the thresholds.
+    expected: At least 1 test ran, pass rate >= 100 %, line coverage >= 60 % (defaults).
+    checks: tests executed >= 1; pass rate % >= gate_pass_rate; line coverage % >= gate_coverage.
+  package:
+    what: Collects the build output (dist/, build/, target/*.jar …) as the component's artifacts; runs the package command when there is one.
+    why: Keeps exactly what was built and tested, for download and for the image.
+    tool: The component's package command (e.g. mvn package) + file copy
+    how: Copies the artifact files into runs/<task>/artifacts/<component>.
+    expected: The artifact files of the component (none is normal for a Python service).
+    checks: Nothing is tested here – it only collects files.
+  image:
+    what: Builds the component's Docker image and scans it for known vulnerabilities (CVEs) in its operating system and libraries.
+    why: The image is what runs in dev / UAT – its vulnerabilities ship with it.
+    tool: docker build (repository Dockerfile, else one written by the agent or a DevOps template) + Trivy image scan
+    how: Builds through the Docker MCP server; a failed build is fixed by the agent from the build log (self-healing); in the guided flow critical / high CVEs with a fix are hardened (base image / packages) and rescanned.
+    expected: The image is built and has no critical CVEs.
+    checks: Build exit code; Trivy findings per severity.
+  container_gate:
+    what: The image quality gate of one component.
+    why: A fixed rule on the image's vulnerabilities.
+    tool: Gate thresholds (.env gate_image_critical, gate_image_high)
+    how: Compares the image scan with the thresholds.
+    expected: Image built and scanned, 0 critical, at most 5 high CVEs (defaults).
+    checks: image built; image scanned; critical CVEs <= gate_image_critical; high CVEs <= gate_image_high.
+  release:
+    what: Gives every image a fixed name and pushes it to the image registry.
+    why: Dev and UAT then run exactly the released artifact, never a rebuilt one.
+    tool: docker tag / docker push to the local registry (registry:2 on localhost:5000)
+    how: Starts the local registry when it is not running and pushes each built image through the Docker MCP server.
+    expected: Every image pushed.
+    checks: Push exit code per image.
+  deploy:
+    what: Runs the images together on a private Docker network and waits until each service answers HTTP.
+    why: Shows the application really starts and serves requests, so it can be tested like a user would.
+    tool: docker run (through the Docker MCP server) + HTTP health check
+    how: Each container gets its own name and network for this run; Docker picks a free host port (127.0.0.1::<port>), so runs never clash; in the guided flow a service that does not come up is fixed from its log and redeployed.
+    expected: Every service answers HTTP (status below 500).
+    checks: Container running; HTTP status of the service URL.
+  deploy_uat:
+    what: Runs the released images in the UAT environment – its own network and ports – and leaves them running.
+    why: Acceptance testing on exactly the released images.
+    tool: docker run + HTTP health check
+    how: Only after the approval; containers are named cip-uat-<run>-<component>.
+    expected: Every service answers HTTP.
+    checks: Container running; HTTP status of the service URL.
+  functional:
+    what: Tests the running application over HTTP – home page, linked pages, every GET endpoint of its OpenAPI spec and (with an LLM) user journeys.
+    why: Checks the deployed application, not only its code.
+    tool: HTTP client (httpx) + LLM-proposed journeys
+    how: Calls each URL on the dev deployment and checks the answer; each case is explained (what, checks, how, expected, actual, why).
+    expected: Every check passes.
+    checks: HTTP status < 400; no error page in the response; the expected text is present.
+  functional_gate:
+    what: The functional-test quality gate.
+    why: A fixed rule on the functional tests.
+    tool: Gate thresholds (.env gate_functional_pass_rate)
+    how: Compares the functional results with the thresholds.
+    expected: Deployment healthy, at least 1 check, pass rate >= 100 %.
+    checks: deployment healthy; tests executed >= 1; pass rate % >= gate_functional_pass_rate.
+  ui_tests:
+    what: Uses the running web front end in a real browser – pages render, no JavaScript errors, navigation and forms work, LLM user journeys – with a screenshot of every check.
+    why: Catches what HTTP checks cannot – broken JavaScript, empty pages, forms that do not work.
+    tool: Selenium WebDriver + headless Chrome
+    how: Opens the dev deployment in Chrome, runs the standard checks and the journeys, saves screenshots; the dev containers are removed afterwards.
+    expected: The browser checks pass.
+    checks: Visible text; console errors; page still works after clicks and submits.
+  ui_gate:
+    what: The UI-test quality gate.
+    why: A fixed rule on the browser tests.
+    tool: Gate thresholds (.env gate_ui_pass_rate)
+    how: Compares the browser results with the thresholds.
+    expected: At least 1 browser check, pass rate >= 80 %.
+    checks: UI tests executed >= 1; pass rate % >= gate_ui_pass_rate.
+  publish_tests:
+    what: Collects every test result of the run into one report – JUnit XML and a readable HTML page with the explanations and screenshots.
+    why: One place to see and attach all test evidence.
+    tool: JUnit XML writer + HTML report
+    how: Reads the test steps of the run and writes runs/<task>/test-results.
+    expected: The report files exist.
+    checks: –
+  approval:
+    what: A human approves or rejects the UAT deploy after reviewing the stage reports.
+    why: Nothing goes to UAT without a person's decision.
+    tool: Human approval (HITL)
+    how: The run pauses until the reviewer decides; name and comment are recorded.
+    expected: An approval.
+    checks: –
+  report:
+    what: Decides the overall result from the gates, explains the root cause and writes the PDF report.
+    why: One clear verdict with the reasons, for the team and the audit trail.
+    tool: Gate results + LLM explanation (when selected) + PDF writer
+    how: FAIL if any gate failed or a step failed / was blocked, INCOMPLETE if steps were skipped, else PASS.
+    expected: PASS.
+    checks: Every gate and step status.
+
+scanners:
+  semgrep:
+    what: Static analysis (SAST) of the source code for security bugs – injection, unsafe deserialisation, weak crypto, XSS, hard-coded credentials.
+    tool: Semgrep (open-source rules for every language in the repository; bundled DevOps rules when the registry is unreachable)
+    how: Runs `semgrep scan --json` on the workspace; each match is a finding with rule, file and line.
+  bandit:
+    what: Static analysis (SAST) of Python code for common security issues.
+    tool: Bandit
+    how: Runs `bandit -r -f json` on the Python files.
+  codeql:
+    what: Deep static analysis (SAST) with data-flow tracking – finds paths from user input to dangerous calls.
+    tool: GitHub CodeQL CLI
+    how: Builds a CodeQL database of the code and runs the security query suites; results are read from SARIF.
+  ruff:
+    what: Code-quality lint for Python – reported, never blocks the gate.
+    tool: Ruff
+    how: Runs `ruff check --output-format json`.
+  eslint:
+    what: Code-quality lint for JavaScript / TypeScript with the repository's own ESLint config – reported, never blocks the gate.
+    tool: ESLint (the repository's node_modules)
+    how: Runs `npx eslint -f json` when the repository has an ESLint config.
+  trivy-fs:
+    what: Dependency scan (SCA) of the lock files for known vulnerable package versions, plus misconfigurations in Dockerfiles / IaC.
+    tool: Trivy (filesystem mode)
+    how: Runs `trivy fs --format json` on the workspace; findings carry the installed and the fixed version.
+  osv-scanner:
+    what: Dependency scan (SCA) against the OSV vulnerability database.
+    tool: OSV-Scanner
+    how: Reads the lock files and matches every package version against OSV.
+  pip-audit:
+    what: Dependency scan (SCA) of Python requirements.
+    tool: pip-audit
+    how: Resolves requirements*.txt / pyproject in an isolated environment and checks every package against PyPI advisories.
+  npm-audit:
+    what: Dependency scan (SCA) of Node packages.
+    tool: npm audit
+    how: Runs `npm audit --json` (a lock file is created in the workspace copy when missing).
+  snyk:
+    what: Dependency scan (SCA) with Snyk's vulnerability database.
+    tool: Snyk Open Source (needs snyk_token)
+    how: Runs `snyk test --json` on the workspace.
+  gitleaks:
+    what: Secret scan – API keys, tokens, passwords and private keys in the code and its git history.
+    tool: Gitleaks
+    how: Runs `gitleaks detect --report-format json`; secrets are shown masked.
+  trufflehog:
+    what: Secret scan with verification of found credentials.
+    tool: TruffleHog
+    how: Runs `trufflehog filesystem --json` on the workspace.
+  sonarqube:
+    what: SAST and code quality on your SonarQube server.
+    tool: SonarQube (needs sonar_host_url + sonar_token)
+    how: Runs the scanner against your server and reads the issues back.
+  github-alerts:
+    what: The repository's GitHub security alerts – Dependabot, code scanning and secret scanning.
+    tool: GitHub REST API (needs github_token)
+    how: Reads the open alerts of the repository.

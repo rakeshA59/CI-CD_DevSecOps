@@ -51,6 +51,7 @@ class PipelineState(TypedDict, total=False):
     release: Dict[str, Any]          # component -> image in the registry
     uat: Dict[str, Any]              # UAT deployment
     approval: Dict[str, Any]         # human decision before UAT
+    security_review: Dict[str, Any]  # human decision on the security reports (HITL)
 
 
 class LaneState(TypedDict, total=False):

@@ -13,7 +13,7 @@ import time
 from langchain_core.runnables import RunnableConfig
 
 from agent_states.pipeline_state import PipelineState
-from mcp_services.mcp_servers.scanner_mcp.scanners import CATALOG, default_scanners
+from mcp_services.mcp_servers.scanner_mcp.scanners import pick_scanners
 from services.stream_event_writer import StreamStatus
 from utils.agent_events import emit, step_record
 from utils.devops_flow import flow_config
@@ -24,10 +24,13 @@ def design(components: list[dict], answers: dict, source: str = "") -> tuple[lis
     tests = answers.get("tests") or []
     container = answers.get("deploy_as") == "container" and any(c["deployable"] for c in components)
     langs = {c["language"] for c in components}
-    scanners = default_scanners(langs, bool(re.search(r"github\.com", source)))
+    scan_plan = pick_scanners(langs, bool(re.search(r"github\.com", source)),
+                              {t: answers.get(f"{t}_tool") for t in ("sast", "sca", "secrets")})
+    scanners = [p["tool"] for p in scan_plan]
     later = [f"{k} = {answers[k]}" for k in ("ci_platform", "cloud", "target") if answers.get(k) not in ("local", "none", "local_docker", None)]
     rules = {
         "scan": (True, ""),
+        "security_review": (True, ""),
         "build_test_package": (bool(components), "no buildable component was found"),
         "release": (container and answers.get("registry") == "local",
                     "delivery is 'package only'" if not container else "release is switched off"),
@@ -43,7 +46,7 @@ def design(components: list[dict], answers: dict, source: str = "") -> tuple[lis
     plan, spec = [], []
     for st in flow_config()["stages"]:
         on, reason = rules[st["id"]]
-        tools = [CATALOG[s][1] for s in scanners] if st["id"] == "scan" else st["tools"]
+        tools = [f"{p['label']}: {p['tool_label']}" for p in scan_plan] if st["id"] == "scan" else st["tools"]
         spec.append({"id": st["id"], "title": st["title"], "node": st["node"], "why": st["why"], "tools": tools,
                      "mcp": st["mcp"], "included": bool(on), "reason": "" if on else reason})
         if on:
@@ -52,8 +55,8 @@ def design(components: list[dict], answers: dict, source: str = "") -> tuple[lis
     options = {"run_tests": "unit" in tests, "containerize": container, "deploy": container, "continue_on_fail": True,
                # the UI tests need the dev containers after the functional tests – they remove them when done
                "keep_running": ui, "remove_after_ui": ui,
-               "scanners": scanners, "self_heal_attempts": int(answers.get("self_heal_attempts", 1)),
-               "heal_cves": True, "heal_deploy": True, "explain_tests": True,           # guided flow: the extended self-healing loops
+               "scanners": scanners, "scan_plan": scan_plan, "self_heal_attempts": int(answers.get("self_heal_attempts", 1)),
+               "heal_cves": True, "heal_deploy": True, "explain_tests": True, "security_review": True,           # guided flow: the extended self-healing loops
                "recorded_for_later": later}
     return plan, spec, options
 

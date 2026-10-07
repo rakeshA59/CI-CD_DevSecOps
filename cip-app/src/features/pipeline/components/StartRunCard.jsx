@@ -11,12 +11,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/shared/ui/switch';
 import { getProviders } from '@/features/settings/services/LlmService';
 import { getScanners, startPipeline } from '../services/PipelineService';
+import usePipelineStore from '../store/usePipelineStore';
 
 const OPTIONS = [
     ['run_tests', 'Unit tests'],
     ['containerize', 'Containerise'],
     ['deploy', 'Deploy to dev + functional tests'],
     ['continue_on_fail', 'Continue when a gate fails'],
+    ['security_review', 'Pause for security review (HITL)'],
 ];
 
 export default function StartRunCard() {
@@ -30,6 +32,7 @@ export default function StartRunCard() {
         containerize: true,
         deploy: true,
         continue_on_fail: true,
+        security_review: true,
     });
     const [starting, setStarting] = useState(false);
     const [scanners, setScanners] = useState([]);
@@ -92,7 +95,10 @@ export default function StartRunCard() {
                             <button
                                 key={key}
                                 type="button"
-                                onClick={() => setMode(key)}
+                                onClick={() => {
+                                    setMode(key);
+                                    usePipelineStore.setState({ draftMode: key }); // the preview below follows
+                                }}
                                 className={cn(
                                     'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm',
                                     mode === key

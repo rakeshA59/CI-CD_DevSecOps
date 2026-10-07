@@ -29,6 +29,7 @@ export const nodeToStep = (node) =>
         functional_test_agent: 'functional',
         ui_test_agent: 'ui_tests',
         publish_tests_agent: 'publish_tests',
+        security_review: 'security_gate',
         approval_gate: 'approval',
         uat_deploy_agent: 'deploy_uat',
         report_agent: 'report',
@@ -55,6 +56,9 @@ const initialState = {
     live: false,
     selectedStep: null,
     lastEventId: 0,
+    view: 'pipeline', // pipeline | graph | logs
+    draftMode: 'quick', // the mode chosen on the start form (before a run exists)
+    logFocus: null, // { stage, step } – the Logs view opens filtered to it
 };
 
 let closeStream = null;
@@ -69,6 +73,9 @@ const usePipelineStore = create(
         },
 
         selectStep: (stepId) => set({ selectedStep: stepId }),
+        setView: (view) => set({ view }),
+        /** Graph node → its logs: open the Logs view filtered to that stage (and step). */
+        showLogs: (stage, step = null) => set({ view: 'logs', logFocus: { stage, step } }),
 
         loadRun: async (taskId) => {
             const run = await getPipeline(taskId);

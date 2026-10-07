@@ -24,6 +24,9 @@ export const testResultsUrl = (taskId, name) =>
     `${API_BASE}/pipelines/${encodeURIComponent(taskId)}/test-results/${name}`;
 export const screenshotUrl = (taskId, name) =>
     `${API_BASE}/pipelines/${encodeURIComponent(taskId)}/screenshots/${name}`;
+export const stepReportUrl = (taskId, stepId) =>
+    `${API_BASE}/pipelines/${encodeURIComponent(taskId)}/steps/${encodeURIComponent(stepId)}/report.html`;
+export const getStepDocs = () => apiRepository.get('/pipelines/step-docs');
 export const getDashboard = () => apiRepository.get('/pipelines/dashboard');
 
 export const getPipeline = (taskId) =>

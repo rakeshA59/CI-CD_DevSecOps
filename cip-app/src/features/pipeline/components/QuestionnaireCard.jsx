@@ -85,7 +85,7 @@ export default function QuestionnaireCard() {
                             Dockerfiles:{' '}
                             {d.dockerfiles?.length
                                 ? d.dockerfiles.join(', ')
-                                : 'none (CIP writes one)'}
+                                : 'none (DevOps writes one)'}
                         </div>
                         <div>CI files: {d.ci_files?.length ? d.ci_files.join(', ') : 'none'}</div>
                         <div>

@@ -2,10 +2,10 @@ import { ChevronRight } from 'lucide-react';
 import { cn } from '@/core/lib/utils';
 import { StatusIcon } from '@/shared/components/StatusBadge';
 import usePipelineStore from '../store/usePipelineStore';
+import StepInfo from './StepInfo';
 
 const AGENT_OF = {
     scan: 'security_agent',
-    security_gate: 'security_agent',
     test_gate: 'test',
     package: 'image',
     container_gate: 'image',
@@ -13,19 +13,55 @@ const AGENT_OF = {
 
 /** The stages of this run, derived from the planner's components and execution plan. */
 const DEFAULT_SCANS = [
-    { name: 'semgrep', label: 'Semgrep (SAST)' },
-    { name: 'trivy-fs', label: 'Trivy (dependencies + IaC)' },
-    { name: 'gitleaks', label: 'Gitleaks (secrets)' },
+    { name: 'semgrep', label: 'Semgrep (SAST)', category: 'sast' },
+    { name: 'trivy-fs', label: 'Trivy (dependencies + IaC)', category: 'dependency' },
+    { name: 'gitleaks', label: 'Gitleaks (secrets)', category: 'secret' },
+];
+
+// Security column: one group per scan type, in this order
+const SCAN_GROUPS = [
+    ['sast', 'SAST · code'],
+    ['dependency', 'SCA · dependencies + IaC'],
+    ['secret', 'Secrets'],
+    ['quality', 'Code quality · lint'],
+    ['platform', 'Platform alerts'],
 ];
 
 /** Scanners of this run: from the finished run's steps, else announced live by the security agent. */
 function scanList(run, scanners) {
     const done = Object.values(run?.steps || {}).filter((s) => s.id?.startsWith('scan.'));
-    if (done.length) return done.map((s) => ({ name: s.id.slice(5), label: s.name }));
+    if (done.length)
+        return done.map((s) => ({
+            name: s.id.slice(5),
+            label: s.name,
+            category: s.summary?.category,
+        }));
     return scanners.length ? scanners : DEFAULT_SCANS;
 }
 
-export function buildStages(components, plan, scans = DEFAULT_SCANS, guided = false) {
+/** Security lanes: a group header per scan type (`group`, not `lane` – they are not parallel components). */
+function securityLanes(scans) {
+    const groups = SCAN_GROUPS.map(([cat, title]) => ({
+        group: title,
+        steps: scans.filter((s) => s.category === cat).map((s) => [`scan.${s.name}`, s.label]),
+    }));
+    const other = scans.filter((s) => !SCAN_GROUPS.some(([c]) => c === s.category));
+    if (other.length)
+        groups.push({ group: 'Other', steps: other.map((s) => [`scan.${s.name}`, s.label]) });
+    return [
+        ...groups.filter((g) => g.steps.length),
+        { group: 'Human review', steps: [['security_gate', 'HITL – review reports']] },
+    ];
+}
+
+export function buildStages(
+    components,
+    plan,
+    scans = DEFAULT_SCANS,
+    guided = false,
+    designed = true,
+    containerize = true
+) {
     const has = (n) => plan.some((s) => s.name === n);
     const lanes = (fn, list = components) => list.map((c) => ({ lane: c.name, steps: fn(c.name) }));
     const stages = [
@@ -53,19 +89,14 @@ export function buildStages(components, plan, scans = DEFAULT_SCANS, guided = fa
                   agent: 'Release Planner',
                   lanes: [{ steps: [['plan', 'Plan the pipeline']] }],
               },
-        {
-            title: 'Security',
-            agent: 'Security Engineer',
-            lanes: [
-                {
-                    steps: [
-                        ...scans.map((s) => [`scan.${s.name}`, s.label]),
-                        ['security_gate', 'Security gate'],
-                    ],
-                },
-            ],
-        },
     ];
+    // until the planner has decided the stages (guided: after the questionnaire) only checkout + plan are known
+    if (!designed) return stages;
+    stages.push({
+        title: 'Security',
+        agent: 'Security Engineer',
+        lanes: securityLanes(scans),
+    });
     if (components.length) {
         stages.push({
             title: 'Build & test',
@@ -78,7 +109,7 @@ export function buildStages(components, plan, scans = DEFAULT_SCANS, guided = fa
             ]),
         });
         const deployable = components.filter((c) => c.deployable);
-        if (deployable.length)
+        if (deployable.length && containerize)
             stages.push({
                 title: 'Containerise',
                 agent: 'Release Engineer',
@@ -120,7 +151,14 @@ export function buildStages(components, plan, scans = DEFAULT_SCANS, guided = fa
         stages.push({
             title: 'UI tests',
             agent: 'UI Test Engineer',
-            lanes: [{ steps: [['ui_tests', 'Selenium browser tests'], ['ui_gate', 'UI gate']] }],
+            lanes: [
+                {
+                    steps: [
+                        ['ui_tests', 'Selenium browser tests'],
+                        ['ui_gate', 'UI gate'],
+                    ],
+                },
+            ],
         });
     if (has('publish_tests_agent'))
         stages.push({
@@ -149,10 +187,13 @@ export function buildStages(components, plan, scans = DEFAULT_SCANS, guided = fa
     return stages;
 }
 
-function stepStatus(id, run, nodeStatus, live) {
+export function stepStatus(id, run, nodeStatus, live) {
     if (
         (id === 'questionnaire' && run?.status === 'WAITING_INPUT') ||
-        (id === 'approval' && run?.status === 'WAITING_APPROVAL')
+        (id === 'approval' &&
+            run?.status === 'WAITING_APPROVAL' &&
+            run?.pending?.type === 'approval') ||
+        (id === 'security_gate' && run?.pending?.type === 'security_review')
     )
         return 'waiting';
     const rec = run?.steps?.[id];
@@ -170,25 +211,24 @@ function stepStatus(id, run, nodeStatus, live) {
     return parent && parent !== 'running' ? parent : 'pending';
 }
 
-export default function PipelineFlow() {
-    const {
-        run,
-        nodeStatus,
-        components,
-        executionPlan,
-        scanners,
-        spec,
-        live,
-        selectedStep,
-        selectStep,
-    } = usePipelineStore();
-    const guided = run?.mode === 'guided' || spec.length > 0;
-    const stages = buildStages(
+/** The stages of the current run (shared by the Pipeline, Graph and Logs views). */
+export function useStages() {
+    const { run, components, executionPlan, scanners, spec, draftMode } = usePipelineStore();
+    const guided = run ? run.mode === 'guided' || spec.length > 0 : draftMode === 'guided';
+    return buildStages(
         components,
         guided && !spec.length ? [] : executionPlan,
         scanList(run, scanners),
-        guided
+        guided,
+        guided ? spec.length > 0 : executionPlan.length > 0,
+        // no image stage when the run does not containerise (guided: delivery "package only")
+        guided ? run?.answers?.deploy_as !== 'package' : run?.options?.containerize !== false
     );
+}
+
+export default function PipelineFlow() {
+    const { run, nodeStatus, live, selectedStep, selectStep } = usePipelineStore();
+    const stages = useStages();
     return (
         <div className="flex items-stretch gap-1 overflow-x-auto pb-2">
             {stages.map((stage, i) => (
@@ -211,6 +251,11 @@ export default function PipelineFlow() {
                                     {lane.lane && (
                                         <div className="text-primary px-1 text-[11px] font-medium">
                                             {lane.lane}
+                                        </div>
+                                    )}
+                                    {lane.group && (
+                                        <div className="text-muted-foreground px-1 text-[10px] font-semibold tracking-wide uppercase">
+                                            {lane.group}
                                         </div>
                                     )}
                                     {lane.steps.map(([id, label]) => {
@@ -250,7 +295,7 @@ export default function PipelineFlow() {
                                                         status === 'running' && 'text-primary'
                                                     )}
                                                 />
-                                                <span className="min-w-0">
+                                                <span className="min-w-0 flex-1">
                                                     <span className="block font-medium">
                                                         {label}
                                                     </span>
@@ -260,6 +305,7 @@ export default function PipelineFlow() {
                                                         </span>
                                                     )}
                                                 </span>
+                                                <StepInfo id={id} label={label} />
                                             </button>
                                         );
                                     })}

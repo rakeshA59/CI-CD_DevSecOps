@@ -19,7 +19,7 @@ export default function RunsPage() {
     }, []);
 
     return (
-        <Card className="mx-auto max-w-6xl">
+        <Card className="w-full">
             <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                     <History className="text-primary size-5" /> Recent runs

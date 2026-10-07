@@ -45,10 +45,14 @@ async def docker_build(context: str, tag: str, dockerfile: str = "Dockerfile") -
             "log": out[-4000:]}
 
 
-async def docker_run(image: str, name: str, network: str, port: int, env: dict | None = None, alias: str = "") -> dict:
-    """Run a container on a private network, publish its port on 127.0.0.1 and wait until it answers HTTP."""
+async def docker_run(image: str, name: str, network: str, port: int, env: dict | None = None, alias: str = "",
+                     keep: bool = False) -> dict:
+    """Run a container on a private network, publish its port on 127.0.0.1 and wait until it answers HTTP.
+    keep = restart it whenever Docker / the PC restarts (until it is stopped by hand) – for UAT."""
     await _docker("network", "create", network, timeout=30)
     args = ["run", "-d", "--name", name, "--network", network, "--network-alias", alias or name]
+    if keep:
+        args += ["--restart", "unless-stopped"]
     for k, v in (env or {}).items():
         args += ["-e", f"{k}={v}"]
     if port:

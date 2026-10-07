@@ -101,7 +101,7 @@ class ContainerAgent:
                                       f"Component {name}: {comp['language']} {comp['framework']}, artifacts {pkg['artifacts'][:10]}, "
                                       f"port {port}.\nFiles:\n{await tools.list_files(comp['path'], 2)}") if llm else None
             content = df.content if df else TEMPLATES.get(comp["language"], "").format(port=port)
-            port, source = (df.port if df else port), ("written by the agent" if df else "CIP template")
+            port, source = (df.port if df else port), ("written by the agent" if df else "DevOps template")
             if not content:
                 msg = f"no Dockerfile and no template for {comp['language']} – add a Dockerfile to the repository"
                 result["container_gate"] = container_gate({}, [], False, blocked=msg)

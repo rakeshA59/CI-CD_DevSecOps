@@ -53,6 +53,35 @@ questionnaire:
       - {value: unit, label: Unit tests, runs: true}
       - {value: functional, label: Functional / API tests on the running app, runs: true}
       - {value: ui, label: UI browser tests (Selenium), runs: true}
+  - id: sast_tool
+    label: "Security scan – SAST (code): which tool?"
+    type: single
+    prefill: scan_tool
+    options:
+      - {value: auto, label: "Let the agent decide (best fit for the tech stack)", runs: true}
+      - {value: semgrep, label: Semgrep, runs: true}
+      - {value: codeql, label: CodeQL (needs the CodeQL CLI), runs: true}
+      - {value: sonarqube, label: SonarQube (needs your server), runs: true}
+      - {value: bandit, label: Bandit (Python only), runs: true}
+  - id: sca_tool
+    label: "Security scan – SCA (dependencies + IaC): which tool?"
+    type: single
+    prefill: scan_tool
+    options:
+      - {value: auto, label: "Let the agent decide (best fit for the tech stack)", runs: true}
+      - {value: trivy-fs, label: Trivy, runs: true}
+      - {value: osv-scanner, label: OSV-Scanner, runs: true}
+      - {value: snyk, label: Snyk (needs a token), runs: true}
+      - {value: npm-audit, label: npm audit (Node only), runs: true}
+      - {value: pip-audit, label: pip-audit (Python only), runs: true}
+  - id: secrets_tool
+    label: "Security scan – secrets: which tool?"
+    type: single
+    prefill: scan_tool
+    options:
+      - {value: auto, label: "Let the agent decide (best fit for the tech stack)", runs: true}
+      - {value: gitleaks, label: Gitleaks, runs: true}
+      - {value: trufflehog, label: TruffleHog, runs: true}
   - id: uat
     label: Deploy to a UAT environment after the tests?
     type: bool
@@ -75,6 +104,12 @@ stages:
     why: Find vulnerable code (SAST), vulnerable dependencies (SCA), leaked secrets and misconfigurations before anything is built or shipped.
     tools: [semgrep, bandit, codeql, trivy-fs, osv-scanner, pip-audit, npm-audit, snyk, gitleaks, trufflehog, sonarqube, github-alerts]
     mcp: scanner MCP (:8051)
+  - id: security_review
+    node: security_review
+    title: HITL – review security reports
+    why: A human reviews the scan reports and the security gate result, then approves (the pipeline continues) or rejects (the pipeline stops and reports).
+    tools: [security gate thresholds, human approval]
+    mcp: –
   - id: build_test_package
     node: component_lanes
     title: Build · unit tests · package · containerise
