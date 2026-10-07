@@ -129,6 +129,6 @@ class FunctionalTestAgent:
         await emit(task_id, self.node_name, StreamStatus.END, msg)
         return {"functional": {"cases": cases}, "gates": {"functional": gate}, "step_index": state["step_index"] + 1,
                 "steps": {"functional": step_record("functional", "Functional tests", "functional tests",
-                                                    "passed" if gate["passed"] else "failed", msg, items=cases, item_type="tests", started=t0),
+                                                    "passed" if cases else "failed", msg, items=cases, item_type="tests", started=t0),
                           "functional_gate": step_record("functional_gate", "Functional gate", "functional tests",
                                                          "passed" if gate["passed"] else "failed", msg, items=gate["checks"], item_type="checks")}}

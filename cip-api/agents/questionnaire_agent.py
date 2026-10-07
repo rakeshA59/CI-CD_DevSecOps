@@ -66,7 +66,7 @@ def questions(detected: dict) -> list[dict]:
             note = (f"{len(detected['dockerfiles'])} Dockerfile(s) in the repo" if detected["dockerfiles"] else
                     "server / web components found – CIP writes a Dockerfile" if detected["deployable"] else "no server component found")
         elif q.get("prefill") == "tests":
-            web = any(c["kind"] == "web-frontend" for c in detected["components"])
+            web = any(c["kind"] in ("web-frontend", "web-app") for c in detected["components"])
             value = ["unit"] + (["functional"] if detected["deployable"] else []) + (["ui"] if web else [])
             note = ("unit tests found in the repo" if detected["has_tests"] else "no unit tests found – the test agent can write them (LLM)") + (
                 " · web front-end found → browser tests" if web else "")

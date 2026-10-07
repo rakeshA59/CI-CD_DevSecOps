@@ -82,8 +82,9 @@ async def dashboard() -> Any:
     for r in runs:
         r["active"] = r["task_id"] in RUNNING
         r["app_urls"] = _app_urls(r["task_id"], apps)
-    return {"totals": {"runs": len(runs), "passed": sum(r["overall"] == "PASS" for r in done),
-                       "failed": sum(r["overall"] in ("FAIL", "ERROR") for r in done),
+    return {"totals": {"runs": len(runs), "successful": sum(r.get("status") == "COMPLETED" for r in runs),
+                       "terminated": sum(r.get("status") == "STOPPED" for r in runs),
+                       "errors": sum(r.get("status") == "ERROR" for r in runs),
                        "waiting": sum(str(r.get("status")).startswith("WAITING") for r in runs),
                        "repositories": len(latest), "open_findings_latest": open_findings,
                        "tests_passed": sum(t.get("passed", 0) for t in tests), "tests_total": sum(t.get("total", 0) for t in tests)},

@@ -19,12 +19,14 @@ class PipelineState(TypedDict, total=False):
     task_id: str
     source: str                      # GitHub URL, org/repo or local folder
     source_type: str                 # "git repo" | "local folder"
+    repo: str                        # repository / folder name
     branch: Optional[str]
     provider: str                    # LLM provider chosen in the UI
     options: Dict[str, Any]          # run_tests / containerize / deploy / functional / continue_on_fail
     run_dir: str
     workspace: str
     source_info: Dict[str, Any]
+    app_name: str                    # readable application name (planner), not the repository slug
 
     # Plan (written by the planner agent) – plan-execute routing like the sdlc-api graph builders
     components: List[Dict[str, Any]]

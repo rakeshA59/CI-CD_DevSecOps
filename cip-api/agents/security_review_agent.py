@@ -49,16 +49,16 @@ class SecurityReviewAgent:
         done = {"step_index": state["step_index"] + 1}
         if not (state.get("options") or {}).get("security_review", True):
             return {**done, "steps": {"security_gate": step_record(
-                "security_gate", NAME, "security", "passed" if summary["gate_passed"] else "failed",
+                "security_gate", NAME, "security", "passed",
                 f"{gate_txt} · human review switched off", items=summary["checks"], item_type="checks", started=t0)}}
 
         await emit(task_id, self.node_name, StreamStatus.PROGRESS, f"waiting for a human to review the security reports ({gate_txt})")
         decision = interrupt({"type": "security_review", "summary": summary}) or {}
         approve = str(decision.get("decision", "")).lower().startswith("approv")
         by, comment = (decision.get("by") or "reviewer")[:80], (decision.get("comment") or "")[:500]
-        msg = f"{gate_txt} · {'approved' if approve else 'rejected'} by {by}" + (f": {comment}" if comment else "")
+        msg = f"{'Approved' if approve else 'Rejected'} by {by}" + (f": {comment}" if comment else "") + f" · {gate_txt}"
         await emit(task_id, self.node_name, StreamStatus.END if approve else StreamStatus.ERROR, msg)
-        status = ("passed" if summary["gate_passed"] else "warning") if approve else "failed"
+        status = "passed" if approve else "failed"        # the human decision decides; the findings colour the ⓘ
         out = {**done, "security_review": {"decision": "approve" if approve else "reject", "by": by, "comment": comment},
                "steps": {"security_gate": step_record("security_gate", NAME, "security", status, msg, items=summary["checks"],
                                                       item_type="checks", explanation=comment, started=t0,

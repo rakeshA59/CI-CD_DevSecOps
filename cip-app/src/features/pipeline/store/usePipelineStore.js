@@ -120,11 +120,13 @@ const usePipelineStore = create(
             get().follow(taskId, lastEventId);
         },
 
-        /** Stop button: a running run ends its stream (→ reload); a paused one is reloaded here. */
+        /** Stop button: the API marks the run STOPPED at once (cleanup continues in the background). */
         stop: async () => {
-            const { taskId, live } = get();
+            const { taskId } = get();
             await stopPipeline(taskId);
-            if (!live) await get().loadRun(taskId);
+            closeStream?.();
+            set({ live: false });
+            await get().loadRun(taskId);
         },
 
         addEvent: (event) =>

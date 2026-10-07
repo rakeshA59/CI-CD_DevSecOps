@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import List, Literal
 from urllib.parse import urljoin, urlparse
 
+import httpx
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
@@ -46,6 +47,27 @@ return {
   buttons: [...document.querySelectorAll('button, input[type=submit], [role=button]')].filter(vis).map(b => (b.innerText || b.value || '').trim().slice(0, 40)).filter(Boolean).slice(0, 20),
   forms: document.querySelectorAll('form').length
 };"""
+
+
+API_PAGES = ("swagger-ui", "redoc", "openapi.json", '"openapi":', "graphiql")
+UI_PATHS = ("/", "/index.html", "/static/index.html", "/ui/", "/app/")
+
+
+async def find_ui(url: str) -> str:
+    """The URL of a real user-facing HTML page of a running service – not an API doc page (Swagger / ReDoc / OpenAPI),
+    not JSON, not an error page. '' when the service has no UI."""
+    async with httpx.AsyncClient(timeout=8, follow_redirects=True) as client:
+        for path in UI_PATHS:
+            try:
+                r = await client.get(urljoin(url, path))
+            except httpx.HTTPError:
+                continue
+            body = r.text[:20000]
+            if (r.status_code < 400 and "html" in r.headers.get("content-type", "") and "<body" in body.lower()
+                    and not any(x in body.lower() for x in API_PAGES) and not any(e in body for e in ERROR_TEXT)
+                    and "/docs" not in str(r.url) and "/redoc" not in str(r.url)):
+                return str(r.url)
+    return ""
 
 
 class Step(BaseModel):
@@ -301,8 +323,14 @@ class UITestAgent:
     async def run(self, state: PipelineState, config: RunnableConfig) -> PipelineState:
         task_id, t0 = state["task_id"], time.time()
         dep, opts = state.get("deploy") or {}, state.get("options") or {}
-        kinds = {c["name"]: c.get("kind") for c in state.get("components", [])}
-        up = [s for s in dep.get("services", []) if s["status"] == "passed" and s.get("url") and kinds.get(s["component"]) != "api"]
+        running = [s for s in dep.get("services", []) if s["status"] == "passed" and s.get("url")]
+        up = []
+        for s in running:                                 # the component kind is only a hint – look at what is served
+            ui = await find_ui(s["url"])
+            await emit(task_id, self.node_name, StreamStatus.PROGRESS,
+                       f"{s['component']}: user-facing UI at {ui}" if ui else f"{s['component']}: no HTML UI (API only) at {s['url']}")
+            if ui:
+                up.append({**s, "url": ui})
         done = {"step_index": state["step_index"] + 1}
 
         async def finish(status: str, msg: str, cases: list, gate: dict | None) -> dict:
@@ -326,9 +354,11 @@ class UITestAgent:
                                                                                       for c in gate["checks"] if not c["passed"]) or "all checks passed",
                                                      items=gate["checks"], item_type="checks")}}
 
-        if not up:
-            why = "no web front-end is running in dev – see the deploy step"
+        if not running:
+            why = "nothing is running in dev – see the deploy step"
             return await finish("blocked", why, [], ui_gate([], blocked=why))
+        if not up:
+            return await finish("skipped", "SKIPPED – API only: no user-facing UI (Swagger / ReDoc pages are not a UI)", [], None)
         try:
             driver = await asyncio.to_thread(_driver)
         except Exception as e:  # noqa: BLE001
@@ -367,5 +397,5 @@ class UITestAgent:
             await asyncio.to_thread(driver.quit)
         gate = ui_gate(cases)
         passed = sum(c["status"] == "passed" for c in cases)
-        return await finish("passed" if gate["passed"] else "failed",
+        return await finish("passed" if cases else "failed",           # failed checks colour the ⓘ
                             f"{passed}/{len(cases)} browser checks passed · gate {'PASS' if gate['passed'] else 'FAIL'}", cases, gate)

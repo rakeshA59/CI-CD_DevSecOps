@@ -39,6 +39,13 @@ const ROWS = [
     ['Expected', 'expected'],
 ];
 
+// colour of the ⓘ = what the step found (quality checks + findings); the box colour = did the step work
+const QUALITY = {
+    clean: ['text-emerald-500', 'no findings'],
+    warning: ['text-amber-500', 'warnings – e.g. findings, coverage below target'],
+    critical: ['text-red-500', 'critical / high findings, CVEs or failed tests'],
+};
+
 export default function StepInfo({ id, label }) {
     const { run, taskId } = usePipelineStore();
     const docs = useStepDocs();
@@ -47,6 +54,8 @@ export default function StepInfo({ id, label }) {
     const hide = useRef(null);
     const rec = run?.steps?.[id];
     const doc = docFor(docs, id);
+    const [tone, toneText] = QUALITY[rec?.quality] || ['text-muted-foreground', ''];
+    const checks = rec?.gate?.checks || [];
     const facts = Object.entries(rec?.summary || {})
         .filter(([, v]) => v !== null && v !== '' && typeof v !== 'object')
         .slice(0, 6);
@@ -75,8 +84,8 @@ export default function StepInfo({ id, label }) {
                 ref={icon}
                 role="button"
                 tabIndex={0}
-                title="Details of this step"
-                className="text-muted-foreground hover:text-primary ml-auto shrink-0"
+                title={toneText ? `Findings: ${toneText}` : 'Details of this step'}
+                className={`${tone} hover:text-primary ml-auto shrink-0`}
                 onMouseEnter={show}
                 onMouseLeave={leave}
                 onClick={open}
@@ -94,6 +103,11 @@ export default function StepInfo({ id, label }) {
                     >
                         <div className="mb-2 flex items-center gap-2">
                             {rec && <StatusBadge status={rec.status} />}
+                            {toneText && (
+                                <span className={`text-[11px] font-medium ${tone}`}>
+                                    findings: {rec.quality}
+                                </span>
+                            )}
                             <span className="text-sm font-semibold">{label}</span>
                             {rec?.duration_s ? (
                                 <span className="text-muted-foreground ml-auto">
@@ -111,6 +125,27 @@ export default function StepInfo({ id, label }) {
                             <dt className="text-muted-foreground font-medium">Result</dt>
                             <dd>{rec ? rec.message || rec.status : 'not run yet'}</dd>
                         </dl>
+                        {checks.length > 0 && (
+                            <div className="mt-2">
+                                <div className="text-muted-foreground mb-1 font-medium">
+                                    Quality checks (do not stop the pipeline)
+                                </div>
+                                {checks.map((c) => (
+                                    <div key={c.name} className="flex gap-2">
+                                        <span
+                                            className={
+                                                c.passed ? 'text-emerald-500' : 'text-amber-500'
+                                            }
+                                        >
+                                            {c.passed ? '✓' : '!'}
+                                        </span>
+                                        <span>
+                                            {c.name}: <b>{String(c.actual)}</b> (needs {c.required})
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                         {facts.length > 0 && (
                             <div className="mt-2 flex flex-wrap gap-1">
                                 {facts.map(([k, v]) => (

@@ -25,16 +25,18 @@ from services.stream_event_writer import StreamStatus
 from utils.agent_events import emit, step_record
 from utils.quality_gates import container_gate
 
-TEMPLATES = {
-    "Python": "FROM python:3.12-slim\nWORKDIR /app\nCOPY . .\nRUN pip install --no-cache-dir -r requirements.txt\n"
-              "RUN useradd -m app\nUSER app\nEXPOSE {port}\nCMD [\"python\", \"-m\", \"uvicorn\", \"main:app\", \"--host\", \"0.0.0.0\", \"--port\", \"{port}\"]\n",
-    "JavaScript": "FROM nginxinc/nginx-unprivileged:1.27-alpine\nCOPY dist/ /usr/share/nginx/html/\nEXPOSE 8080\n",
-    "Java": "FROM eclipse-temurin:17-jre-alpine\nWORKDIR /app\nCOPY target/*.jar app.jar\nRUN adduser -D app\nUSER app\n"
+TEMPLATES = {                                     # {app} = the backend sub-folder when the component is a parent folder
+    "Python": "FROM python:3.12-slim\nWORKDIR /app\nCOPY . .\nRUN pip install --no-cache-dir -r {app}requirements.txt\n"
+              "RUN useradd -m app\nUSER app\nWORKDIR /app/{app}\nEXPOSE {port}\n"
+              "CMD [\"python\", \"-m\", \"uvicorn\", \"main:app\", \"--host\", \"0.0.0.0\", \"--port\", \"{port}\"]\n",
+    "JavaScript": "FROM nginxinc/nginx-unprivileged:1.27-alpine\nCOPY {app}dist/ /usr/share/nginx/html/\nEXPOSE 8080\n",
+    "Java": "FROM eclipse-temurin:17-jre-alpine\nWORKDIR /app\nCOPY {app}target/*.jar app.jar\nRUN adduser -D app\nUSER app\n"
             "EXPOSE 8080\nCMD [\"java\", \"-jar\", \"app.jar\"]\n",
-    "Go": "FROM golang:1.22 AS build\nWORKDIR /src\nCOPY . .\nRUN CGO_ENABLED=0 go build -o /app .\n"
+    "Go": "FROM golang:1.22 AS build\nWORKDIR /src\nCOPY . .\nWORKDIR /src/{app}\nRUN CGO_ENABLED=0 go build -o /app .\n"
           "FROM gcr.io/distroless/static-debian12:nonroot\nCOPY --from=build /app /app\nEXPOSE 8080\nENTRYPOINT [\"/app\"]\n",
 }
 TEMPLATES["TypeScript"] = TEMPLATES["JavaScript"]
+TEMPLATES["HTML"] = "FROM nginxinc/nginx-unprivileged:1.27-alpine\nCOPY . /usr/share/nginx/html/\nEXPOSE 8080\n"   # static site
 
 
 def exposed_port(folder: Path, default: int) -> int:
@@ -100,7 +102,8 @@ class ContainerAgent:
                                       "in the folder (it was built by the pipeline).",
                                       f"Component {name}: {comp['language']} {comp['framework']}, artifacts {pkg['artifacts'][:10]}, "
                                       f"port {port}.\nFiles:\n{await tools.list_files(comp['path'], 2)}") if llm else None
-            content = df.content if df else TEMPLATES.get(comp["language"], "").format(port=port)
+            content = df.content if df else TEMPLATES.get(comp["language"], "").format(
+                port=port, app=f"{comp['app_dir']}/" if comp.get("app_dir") else "")
             port, source = (df.port if df else port), ("written by the agent" if df else "DevOps template")
             if not content:
                 msg = f"no Dockerfile and no template for {comp['language']} – add a Dockerfile to the repository"
@@ -173,7 +176,7 @@ class ContainerAgent:
         msg = (f"{tag} ({image.get('size_mb')} MB) · Dockerfile {source} · scan: {scan.get('message', scan['status'])}"
                if image["built"] else f"docker build failed: {image.get('log', '')[-500:]}")
         await emit(task_id, node, StreamStatus.END if image["built"] else StreamStatus.ERROR, msg, parent="component_lanes")
-        steps[node] = step_record(node, "Docker image + scan", "containerize", "passed" if gate["passed"] else "failed", msg, name,
+        steps[node] = step_record(node, "Docker image + scan", "containerize", "passed" if image["built"] else "failed", msg, name,
                                   summary={"image": tag, "dockerfile": source, "via": docker.last_transport,
                                            **({"self-heal attempts": attempt} if attempt else {})}, explanation=heal.strip(),
                                   items=scan.get("findings", []), item_type="findings", started=t1)

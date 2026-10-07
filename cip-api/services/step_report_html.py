@@ -70,6 +70,12 @@ def _badge(status: str) -> str:
     return f"<span class='badge {_e(status)}'>{_e(str(status).upper())}</span>"
 
 
+def _quality(q: str | None) -> str:
+    """What the step found: clean / warning / critical (the colour of its ⓘ in the UI)."""
+    cls = {"critical": "failed", "warning": "warning", "clean": "passed"}.get(q or "")
+    return f"<span class='badge {cls}'>FINDINGS: {_e(q.upper())}</span>" if cls else ""
+
+
 def _results(rec: dict) -> str:
     items, kind = rec.get("items") or [], rec.get("item_type")
     if kind == "findings":
@@ -134,6 +140,13 @@ def render_step_report(run: dict, step_id: str, events: list[dict]) -> str:
         f"<code>{_e(c.get('command'))}</code> <span class='muted'>in {_e(c.get('folder'))} · exit {_e(c.get('exit_code'))} · "
         f"{_e(c.get('seconds'))}s</span></summary><pre>{_e(c.get('output_tail'))}</pre></details>"
         for c in rec.get("commands") or []) or "<p class='muted'>No commands – this step works through the MCP servers or the API.</p>"
+    gate = rec.get("gate")
+    quality = ("" if not gate else
+               "<h2>Quality checks</h2><p class='muted'>Compared with the thresholds in .env – they do not stop the pipeline; "
+               "they decide the colour of this step's ⓘ and the final PASS / FAIL in the report.</p>"
+               + _table(["Check", "Actual", "Required", "Result"],
+                        [[_e(c.get("name")), _e(c.get("actual")), _e(c.get("required")),
+                          _badge("passed" if c.get("passed") else "warning")] for c in gate["checks"]]))
     logs = [e for e in events if _event_matches(e, step_id)]
     log_html = "<pre>" + "\n".join(f"#{e['id']} {_e(e['status'])}  {_e(e.get('message'))}" for e in logs[-400:]) + "</pre>" \
         if logs else "<p class='muted'>No log lines for this step.</p>"
@@ -156,12 +169,13 @@ details{{margin:6px 0}} summary{{cursor:pointer}} img{{max-width:560px;border:1p
 .warning,.skipped,.waiting{{color:#a66a00;border-color:#a66a0055}} .pending,.running{{color:var(--muted)}}
 </style></head><body>
 <h1>{_e(title)}</h1>
-<p>{_badge(rec.get('status', 'pending'))} <span class="muted">{_e(rec.get('message'))}</span></p>
+<p>{_badge(rec.get('status', 'pending'))} {_quality(rec.get('quality'))} <span class="muted">{_e(rec.get('message'))}</span></p>
 <p class="muted">Run {_e(run.get('task_id'))} · {_e(run.get('repo'))} · stage: {_e(rec.get('stage'))}
 {' · ' + _e(rec.get('duration_s')) + 's' if rec.get('duration_s') else ''}</p>
 <h2>About this step</h2><div class="card"><dl>{about or "<dd>–</dd>"}</dl></div>
 <h2>Stage report</h2><div class="card"><dl>{stage}</dl></div>
 <h2>Summary</h2>{summary}
+{quality}
 <h2>Results</h2>{_results(rec)}
 <h2>Commands</h2>{cmds}
 {f"<h2>Agent reasoning / self-healing</h2><pre>{_e(rec['explanation'])}</pre>" if rec.get('explanation') else ''}

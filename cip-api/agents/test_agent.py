@@ -111,7 +111,7 @@ class TestAgent:
         cov = coverage_percent(folder)
         summ = summarize(cases)
         gate = test_gate(summ, cov)
-        status = "passed" if summ["executed"] and not summ["failed"] else "failed" if summ["executed"] else "skipped"
+        status = "passed" if summ["executed"] else "skipped"      # failed cases / low coverage colour the ⓘ
         message = (f"{summ['passed']}/{summ['executed']} passed" + (f", coverage {cov}%" if cov is not None else "")
                    + (" (tests written by the agent)" if generated else "") if summ["executed"] else
                    "no unit tests found" + ("" if llm else " – select an LLM to let the agent write tests"))

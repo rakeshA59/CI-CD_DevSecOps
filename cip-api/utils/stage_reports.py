@@ -64,15 +64,51 @@ def stage_report(step: dict) -> dict:
             "blockers": [b for b in blockers if b][:10]}
 
 
+GATE_OF = {"test": "test_gate", "image": "container_gate", "functional": "functional_gate", "ui_tests": "ui_gate"}
+QUALITY_STEPS = ("scan", "security_gate", "test", "image", "functional", "ui_tests")
+HIDDEN_GATES = ("test_gate", "container_gate", "functional_gate", "ui_gate")      # shown inside the step they check
+
+
+def gate_of(step_id: str, steps: dict) -> dict | None:
+    kind, _, comp = step_id.partition(".")
+    gid = GATE_OF.get(kind)
+    return steps.get(f"{gid}.{comp}" if comp else gid) if gid else None
+
+
+def quality(step: dict, gate: dict | None) -> str | None:
+    """What the step found (colour of its ⓘ): critical – critical / high findings or CVEs, secrets, failed tests;
+    warning – other findings, a quality gate below its threshold (e.g. coverage); clean – nothing to report."""
+    if step.get("id", "").split(".")[0] not in QUALITY_STEPS or step.get("status") != "passed":
+        return None                                   # only steps that ran and produce findings / test results
+    items, kind = step.get("items") or [], step.get("item_type")
+    checks = (gate or {}).get("items") or (items if kind == "checks" else [])
+    bad = [c for c in checks if not c.get("passed")]
+    if kind == "findings" and any(f.get("severity") in ("CRITICAL", "HIGH") and f.get("category") != "code_quality" for f in items) \
+            or kind == "tests" and any(t.get("status") in ("failed", "error") for t in items) \
+            or any(w in c.get("name", "") for c in bad for w in ("critical", "high", "secrets")):
+        return "critical"
+    if (kind == "findings" and items) or bad or step.get("status") == "warning":
+        return "warning"
+    return "clean"
+
+
 def with_reports(steps: dict) -> dict:
-    return {k: {**v, "report": stage_report(v)} for k, v in (steps or {}).items()}
+    steps = steps or {}
+    out = {}
+    for k, v in steps.items():
+        gate = gate_of(k, steps)
+        out[k] = {**v, "report": stage_report(v), "quality": quality(v, gate),
+                  **({"gate": {"name": gate.get("name"), "status": gate.get("status"), "checks": gate.get("items") or []}} if gate else {})}
+    return out
 
 
 def stage_summary(steps: dict) -> dict:
     """Worst status per stage (for the dashboard grid)."""
-    rank = ["failed", "error", "blocked", "warning", "skipped", "running", "passed"]
+    rank = ["failed", "error", "blocked", "warning", "running", "passed", "skipped"]   # one skipped scanner ≠ amber stage
     out: dict[str, str] = {}
-    for s in (steps or {}).values():
+    for k, s in (steps or {}).items():
+        if k.split(".")[0] in HIDDEN_GATES:
+            continue
         st, cur = s.get("stage", "other"), out.get(s.get("stage", "other"))
         if cur is None or (s["status"] in rank and rank.index(s["status"]) < rank.index(cur if cur in rank else "passed")):
             out[st] = s["status"]

@@ -5,7 +5,7 @@ Security scanners used by the Scanner MCP server (and called in-process when the
     quality    ruff (Python) · eslint (JS/TS, the repo's own config)
     deps       trivy-fs (all ecosystems + IaC) · osv-scanner · pip-audit · npm-audit · snyk
     secrets    gitleaks · trufflehog
-    platforms  sonarqube (your server) · github-alerts (Dependabot, code scanning, secret scanning)
+    servers    sonarqube (SAST + code quality, your server) · github-alerts (Dependabot, code scanning, secret scanning)
     image      trivy-image (used by the container agent)
 
 Every scanner is `async def x(path, ctx) -> {"tool", "status": ok|error|skipped, "message", "findings": [...]}`;
@@ -583,7 +583,7 @@ CATALOG = {
     "snyk":          (snyk,          "Snyk Open Source",                         "dependency", "configured"),
     "gitleaks":      (gitleaks,      "Gitleaks (secrets)",                       "secret",     "always"),
     "trufflehog":    (trufflehog,    "TruffleHog (secrets)",                     "secret",     "always"),
-    "sonarqube":     (sonarqube,     "SonarQube",                                "platform",   "configured"),
+    "sonarqube":     (sonarqube,     "SonarQube (SAST + code quality)",          "sast",       "configured"),
     "github-alerts": (github_alerts, "GitHub alerts (Dependabot, code + secret scanning)", "platform", "configured"),
 }
 

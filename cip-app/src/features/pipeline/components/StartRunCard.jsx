@@ -113,7 +113,7 @@ export default function StartRunCard() {
                     <span className="text-muted-foreground text-xs">
                         {mode === 'quick'
                             ? 'The current flow: fixed stages, options below.'
-                            : 'Checkout → the agent reads the stack and asks a questionnaire → the pipeline (stages + tools) is derived from your answers → build, scan, package, containerise, release to the local registry, deploy, test, publish results → your approval → UAT.'}
+                            : 'Source → the agent reads the stack and asks a questionnaire → the pipeline (stages + tools) is derived from your answers → build, scan, package, containerise, release to the local registry, deploy, test, publish results → your approval → UAT.'}
                     </span>
                 </div>
                 <div className="grid gap-3 md:grid-cols-[1fr_200px]">
@@ -147,19 +147,21 @@ export default function StartRunCard() {
                                 <SelectValue placeholder="Choose a provider" />
                             </SelectTrigger>
                             <SelectContent>
-                                {providers.map((p) => (
-                                    <SelectItem
-                                        key={p.id}
-                                        value={p.id}
-                                        disabled={!p.configured && p.id !== 'none'}
-                                    >
-                                        {p.label}
-                                        {p.model ? ` · ${p.model}` : ''}
-                                        {!p.configured && p.id !== 'none'
-                                            ? ' (not configured)'
-                                            : ''}
-                                    </SelectItem>
-                                ))}
+                                {providers
+                                    .filter((p) => p.configured || p.id === 'none')
+                                    .map((p) => (
+                                        <SelectItem
+                                            key={p.id}
+                                            value={p.id}
+                                            disabled={!p.configured && p.id !== 'none'}
+                                        >
+                                            {p.label}
+                                            {p.model ? ` · ${p.model}` : ''}
+                                            {!p.configured && p.id !== 'none'
+                                                ? ' (not configured)'
+                                                : ''}
+                                        </SelectItem>
+                                    ))}
                             </SelectContent>
                         </Select>
                     </div>

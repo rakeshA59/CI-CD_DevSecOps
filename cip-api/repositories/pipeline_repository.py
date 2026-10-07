@@ -28,7 +28,8 @@ class PipelineRepository:
         """Runs still RUNNING / WAITING when the API starts were cut off by a restart – mark them STOPPED."""
         db = await get_mongo_db()
         await db[RUNS].update_many({"status": {"$in": ["RUNNING", "WAITING_INPUT", "WAITING_APPROVAL"]}},
-                                   {"$set": {"status": "STOPPED", "overall": "STOPPED", "pending": None, "stopped_reason": reason}})
+                                   {"$set": {"status": "STOPPED", "overall": "STOPPED", "pending": None, "stopped_reason": reason,
+                                             "finished_at": dt.datetime.now(dt.timezone.utc).isoformat()}})
 
     async def get_run(self, task_id: str) -> Optional[dict]:
         db = await get_mongo_db()
@@ -36,7 +37,7 @@ class PipelineRepository:
 
     async def list_runs(self, limit: int = 50, dashboard: bool = False) -> list[dict]:
         db = await get_mongo_db()
-        projection = {"_id": 0, "task_id": 1, "source": 1, "source_type": 1, "repo": 1, "status": 1, "overall": 1,
+        projection = {"_id": 0, "task_id": 1, "source": 1, "source_type": 1, "repo": 1, "app_name": 1, "status": 1, "overall": 1,
                       "created_at": 1, "finished_at": 1, "duration_s": 1, "provider": 1, "source_info.branch": 1,
                       "source_info.commit": 1, "mode": 1}
         if dashboard:

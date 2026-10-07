@@ -6,9 +6,7 @@ import StepInfo from './StepInfo';
 
 const AGENT_OF = {
     scan: 'security_agent',
-    test_gate: 'test',
     package: 'image',
-    container_gate: 'image',
 };
 
 /** The stages of this run, derived from the planner's components and execution plan. */
@@ -66,9 +64,9 @@ export function buildStages(
     const lanes = (fn, list = components) => list.map((c) => ({ lane: c.name, steps: fn(c.name) }));
     const stages = [
         {
-            title: 'Checkout',
+            title: 'Source',
             agent: 'Source Controller',
-            lanes: [{ steps: [['checkout', 'Get the code']] }],
+            lanes: [{ steps: [['checkout', 'Get the source code']] }],
         },
         guided
             ? {
@@ -104,7 +102,6 @@ export function buildStages(
             lanes: lanes((n) => [
                 [`build.${n}`, 'Build'],
                 [`test.${n}`, 'Unit tests'],
-                [`test_gate.${n}`, 'Test gate'],
                 [`package.${n}`, 'Package'],
             ]),
         });
@@ -113,13 +110,7 @@ export function buildStages(
             stages.push({
                 title: 'Containerise',
                 agent: 'Release Engineer',
-                lanes: lanes(
-                    (n) => [
-                        [`image.${n}`, 'Image + scan'],
-                        [`container_gate.${n}`, 'Container gate'],
-                    ],
-                    deployable
-                ),
+                lanes: lanes((n) => [[`image.${n}`, 'Image + scan']], deployable),
             });
     }
     if (has('release_agent'))
@@ -138,27 +129,13 @@ export function buildStages(
         stages.push({
             title: 'Functional tests',
             agent: 'QA Engineer',
-            lanes: [
-                {
-                    steps: [
-                        ['functional', 'Functional tests'],
-                        ['functional_gate', 'Functional gate'],
-                    ],
-                },
-            ],
+            lanes: [{ steps: [['functional', 'Functional tests']] }],
         });
     if (has('ui_test_agent'))
         stages.push({
             title: 'UI tests',
             agent: 'UI Test Engineer',
-            lanes: [
-                {
-                    steps: [
-                        ['ui_tests', 'Selenium browser tests'],
-                        ['ui_gate', 'UI gate'],
-                    ],
-                },
-            ],
+            lanes: [{ steps: [['ui_tests', 'Selenium browser tests']] }],
         });
     if (has('publish_tests_agent'))
         stages.push({
@@ -273,9 +250,10 @@ export default function PipelineFlow() {
                                                         'border-l-red-500',
                                                     status === 'blocked' &&
                                                         'border-dashed border-l-red-400 opacity-80',
-                                                    ['skipped', 'warning', 'waiting'].includes(
-                                                        status
-                                                    ) && 'border-l-amber-500',
+                                                    ['warning', 'waiting'].includes(status) &&
+                                                        'border-l-amber-500',
+                                                    status === 'skipped' &&
+                                                        'border-l-muted-foreground/40',
                                                     status === 'waiting' && 'animate-pulse',
                                                     status === 'running' && 'border-l-primary',
                                                     status === 'pending' && 'opacity-60',
@@ -289,9 +267,10 @@ export default function PipelineFlow() {
                                                         ['failed', 'error', 'blocked'].includes(
                                                             status
                                                         ) && 'text-red-500',
-                                                        ['skipped', 'warning', 'waiting'].includes(
-                                                            status
-                                                        ) && 'text-amber-500',
+                                                        ['warning', 'waiting'].includes(status) &&
+                                                            'text-amber-500',
+                                                        status === 'skipped' &&
+                                                            'text-muted-foreground',
                                                         status === 'running' && 'text-primary'
                                                     )}
                                                 />

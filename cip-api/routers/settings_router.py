@@ -12,6 +12,7 @@ from typing import Any, Dict
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from llmapi.llm_provider import PROVIDERS
 from repositories.pipeline_repository import PipelineRepository
 from utils.secret_box import seal, unseal
 
@@ -39,16 +40,29 @@ ENVS = {"dev": ("Dev environment", "used now – the pipeline's 'Deploy (dev)' s
 
 
 SONAR = [("sonar_host_url", "SonarQube server URL (e.g. http://localhost:9000)", False), ("sonar_token", "SonarQube token", True)]
-FROM_SETTINGS: set[str] = set()                 # the SonarQube variables that came from Settings (not from .env)
+FROM_SETTINGS: set[str] = set()                 # variables that came from Settings (not from .env)
 
 
-async def load_sonar() -> None:
-    """Make the SonarQube connection saved in Settings visible to the scanners (API process + MCP servers it starts).
-    A value in .env wins."""
-    saved = await PipelineRepository().get_setting("scanner:sonarqube", {}) or {}
-    for name, _, secret in SONAR:
-        if saved.get(name) and (name in FROM_SETTINGS or not (os.getenv(name) or os.getenv(name.upper()))):
-            os.environ[name] = unseal(saved[name]) if secret else saved[name]
+def saved_groups() -> dict[str, list]:
+    """Settings key → its fields: the SonarQube connection and every LLM provider added with "+ Add model"."""
+    return {"scanner:sonarqube": SONAR, **{f"llm:{pid}": p["fields"] for pid, p in PROVIDERS.items() if p.get("fields")}}
+
+
+async def load_saved_env() -> None:
+    """Make what was saved in Settings visible as environment variables (API process + the MCP servers it starts),
+    so the scanners and the LLM provider read it like .env. A value in .env wins; a removed value is dropped."""
+    repo, wanted = PipelineRepository(), {}
+    for key, fields in saved_groups().items():
+        saved = await repo.get_setting(key, {}) or {}
+        for name, _, secret in fields:
+            if saved.get(name):
+                wanted[name] = unseal(saved[name]) if secret else saved[name]
+    for name in FROM_SETTINGS - wanted.keys():
+        os.environ.pop(name, None)
+        FROM_SETTINGS.discard(name)
+    for name, value in wanted.items():
+        if name in FROM_SETTINGS or not (os.getenv(name) or os.getenv(name.upper())):
+            os.environ[name] = value
             FROM_SETTINGS.add(name)
 
 
@@ -92,7 +106,7 @@ async def save_sonarqube(body: Values) -> Any:
     repo = PipelineRepository()
     saved = _merge(SONAR, await repo.get_setting("scanner:sonarqube", {}) or {}, body.values)
     await repo.set_setting("scanner:sonarqube", saved)
-    await load_sonar()                                     # used from the next scan on
+    await load_saved_env()                                 # used from the next scan on
     return {"saved": "sonarqube"}
 
 

@@ -13,7 +13,7 @@ import { getDashboard } from '@/features/pipeline/services/PipelineService';
 const SOLID = {
     passed: 'bg-emerald-500 border-emerald-500',
     warning: 'bg-amber-400 border-amber-400',
-    skipped: 'bg-amber-200 border-amber-300 dark:bg-amber-900 dark:border-amber-700',
+    skipped: 'bg-muted border-muted-foreground/30',
     failed: 'bg-red-500 border-red-500',
     error: 'bg-red-500 border-red-500',
     blocked: 'bg-red-200 border-red-400 border-dashed dark:bg-red-950',
@@ -22,7 +22,7 @@ const SOLID = {
 
 // Stages in pipeline order (the `stage` of every step record)
 const STAGES = [
-    ['checkout', 'Checkout'],
+    ['checkout', 'Source'],
     ['discovery', 'Discover'],
     ['security', 'Scan'],
     ['build', 'Build'],
@@ -37,6 +37,20 @@ const STAGES = [
     ['approval', 'Approval'],
     ['report', 'Report'],
 ];
+
+/** What happened to the run (not the quality verdict – PASS / FAIL stays on the run page). */
+const RUN_STATUS = {
+    COMPLETED: ['COMPLETED', 'Successful'],
+    STOPPED: ['STOPPED', 'Terminated'],
+    ERROR: ['ERROR', 'Error'],
+    WAITING_INPUT: ['WAITING_INPUT', 'Waiting for input'],
+    WAITING_APPROVAL: ['WAITING_APPROVAL', 'Waiting for approval'],
+};
+function runStatus(r) {
+    if (r.active) return ['RUNNING', 'Running'];
+    return RUN_STATUS[r.status] || [r.status, r.status];
+}
+const when = (d) => (d ? format(new Date(d), 'dd MMM, HH:mm:ss') : '–');
 
 function Tile({ label, value, sub, tone }) {
     return (
@@ -76,8 +90,12 @@ export default function DashboardPage() {
                     value={t.runs ?? '–'}
                     sub={`${t.repositories ?? 0} repositories`}
                 />
-                <Tile label="Passed" value={t.passed ?? '–'} tone="text-emerald-500" />
-                <Tile label="Failed" value={t.failed ?? '–'} tone="text-red-500" />
+                <Tile label="Successful" value={t.successful ?? '–'} tone="text-emerald-500" />
+                <Tile
+                    label="Terminated"
+                    value={t.terminated ?? '–'}
+                    sub={t.errors ? `${t.errors} error(s)` : 'stopped by you'}
+                />
                 <Tile
                     label="Waiting for you"
                     value={t.waiting ?? '–'}
@@ -110,10 +128,11 @@ export default function DashboardPage() {
                     <Table>
                         <TableHeader>
                             <TableRow>
-                                <TableHead>Result</TableHead>
+                                <TableHead>Status</TableHead>
                                 <TableHead>App</TableHead>
-                                <TableHead>Repository</TableHead>
-                                <TableHead>Started</TableHead>
+                                <TableHead>Application</TableHead>
+                                <TableHead>Start time</TableHead>
+                                <TableHead>End time</TableHead>
                                 {STAGES.map(([, label]) => (
                                     <TableHead key={label} className="px-1 text-center text-[11px]">
                                         {label}
@@ -131,9 +150,18 @@ export default function DashboardPage() {
                                     onClick={() => navigate(`/runs/${r.task_id}`)}
                                 >
                                     <TableCell>
-                                        <StatusBadge
-                                            status={r.active ? 'RUNNING' : r.overall || r.status}
-                                        />
+                                        <span
+                                            title={
+                                                r.overall
+                                                    ? `Quality result: ${r.overall} – details on the run page`
+                                                    : ''
+                                            }
+                                        >
+                                            <StatusBadge
+                                                status={runStatus(r)[0]}
+                                                label={runStatus(r)[1]}
+                                            />
+                                        </span>
                                     </TableCell>
                                     <TableCell className="text-xs">
                                         {r.app_urls?.length ? (
@@ -154,7 +182,7 @@ export default function DashboardPage() {
                                     </TableCell>
                                     <TableCell>
                                         <div className="flex items-center gap-1 font-medium">
-                                            {r.repo}
+                                            {r.app_name || r.repo}
                                             <a
                                                 href={`/runs/${r.task_id}`}
                                                 target="_blank"
@@ -167,14 +195,18 @@ export default function DashboardPage() {
                                             </a>
                                         </div>
                                         <div className="text-muted-foreground text-xs">
+                                            {r.repo} ·{' '}
                                             {r.mode === 'guided' ? 'guided flow' : 'quick run'} ·{' '}
                                             {r.source_type}
                                         </div>
                                     </TableCell>
-                                    <TableCell className="text-xs">
-                                        {r.created_at
-                                            ? format(new Date(r.created_at), 'dd MMM, HH:mm')
-                                            : ''}
+                                    <TableCell className="text-xs whitespace-nowrap">
+                                        {when(r.created_at)}
+                                    </TableCell>
+                                    <TableCell className="text-xs whitespace-nowrap">
+                                        {r.active || r.status?.startsWith('WAITING')
+                                            ? '–'
+                                            : when(r.finished_at)}
                                     </TableCell>
                                     {STAGES.map(([key, label]) => {
                                         const st = r.stage_summary?.[key];
@@ -207,7 +239,7 @@ export default function DashboardPage() {
                             {runs.length === 0 && (
                                 <TableRow>
                                     <TableCell
-                                        colSpan={STAGES.length + 6}
+                                        colSpan={STAGES.length + 7}
                                         className="text-muted-foreground text-center"
                                     >
                                         No runs yet.

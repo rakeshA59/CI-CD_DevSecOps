@@ -24,6 +24,7 @@ from llmapi.llm_provider import LLMProvider
 from llmapi.structured_llm import ask_structured
 from services.stream_event_writer import StreamStatus
 from utils.agent_events import emit, step_record
+from utils.app_name import clean_app_name, slug
 
 PY = ".cip-venv\\Scripts\\python" if os.name == "nt" else ".cip-venv/bin/python"
 
@@ -33,7 +34,10 @@ class ComponentPlan(BaseModel):
     path: str = Field(description="folder relative to the repo root, '.' for the root")
     language: str
     framework: str = ""
-    kind: str = Field(description="web-frontend | api | service | library | cli")
+    kind: str = Field(description="web-frontend (a UI of its own) | web-app (a backend that also serves the user-facing UI) "
+                                  "| api | service | library | cli")
+    serves_ui: str = Field("", description="web-app only: folder of the HTML/JS/CSS UI this backend serves")
+    app_dir: str = Field("", description="when path is a parent folder: the backend's sub-folder (relative to path)")
     build_commands: List[str] = Field(description="shell commands, run in `path`, that install dependencies and compile")
     test_command: str = Field("", description="shell command that runs the unit tests and writes a machine-readable report")
     test_reports: List[str] = Field(default_factory=list, description="glob patterns (relative to path) of the test report files")
@@ -48,6 +52,28 @@ class ComponentPlan(BaseModel):
 class RepoPlan(BaseModel):
     components: List[ComponentPlan]
     summary: str = Field(description="what the application is, in one or two sentences")
+    app_name: str = Field("", description="short human name of the application (2-4 words) from its README title, UI "
+                                          "title or what it does – not the repository slug, no version or hash")
+
+
+# code that serves a folder of HTML/JS/CSS (FastAPI / Starlette, Flask, Express, Spring, Django, ASP.NET, Go)
+SERVES = re.compile(r"StaticFiles|FileResponse|send_from_directory|static_folder|express\.static|sendFile|"
+                    r"addResourceHandlers|STATICFILES_DIRS|UseStaticFiles|http\.FileServer")
+SOURCE = {".py", ".js", ".ts", ".mjs", ".cjs", ".java", ".kt", ".go", ".cs"}
+STATIC_UI = {".js", ".css"}
+NOT_UI = {"docs", "doc", "htmlcov", "coverage", "examples", "example", "test", "tests", "fixtures", "e2e", "reports"}
+
+
+def _serves(ws: Path, comp: dict, ui: str) -> str:
+    """The file:line of `comp` that serves the UI folder `ui` (sibling or parent folder), else ''."""
+    folder = Path(ui).name
+    for f in (ws / comp["path"]).rglob("*"):
+        if f.suffix not in SOURCE or any(p in HIDDEN or p.startswith(".") for p in f.relative_to(ws).parts[:-1]):
+            continue
+        for n, line in enumerate(_read(f).splitlines()[:3000], 1):
+            if SERVES.search(line) and (folder in line or "index.html" in line):
+                return f"{f.relative_to(ws).as_posix()}:{n}"
+    return ""
 
 
 def _read(p: Path) -> str:
@@ -59,13 +85,13 @@ def _read(p: Path) -> str:
 
 def rule_plan(ws: Path, repo: str = "") -> list[dict]:
     """Deterministic first plan from the manifests (also the fallback without an LLM)."""
-    comps = []
+    comps, uis = [], []
     for dirpath, dirs, files in os.walk(ws):
         d = Path(dirpath)
         rel = d.relative_to(ws).as_posix() or "."
-        dirs[:] = [x for x in dirs if x not in HIDDEN and not x.startswith(".") and len(d.relative_to(ws).parts) < 3]
+        dirs[:] = [x for x in dirs if x not in HIDDEN and not x.startswith(".")]
         f = set(files)
-        name = (repo or ws.name) if rel == "." else d.name
+        name = slug(clean_app_name(repo or ws.name)) if rel == "." else d.name
         df = "Dockerfile" in f
         if "package.json" in f:
             pkg = json.loads(_read(d / "package.json") or "{}")
@@ -113,14 +139,50 @@ def rule_plan(ws: Path, repo: str = "") -> list[dict]:
                               test_command="go test -json -coverprofile=.cip/cover.out ./... > .cip/go-test.json",
                               test_reports=[".cip/go-test.json"], deployable="package main" in "".join(_read(x) for x in d.glob("*.go")),
                               port=8080, has_dockerfile=df))
-        elif df or (rel == "." and "index.html" in f):
-            comps.append(dict(name=name, path=rel, language="unknown", framework="Dockerfile" if df else "static site",
-                              kind="service" if df else "web-frontend", build_commands=[], deployable=True, port=8080,
-                              has_dockerfile=df))
+        elif df:
+            comps.append(dict(name=name, path=rel, language="unknown", framework="Dockerfile", kind="service",
+                              build_commands=[], deployable=True, port=8080, has_dockerfile=True))
+        elif "index.html" in f and (rel == "." or any(Path(x).suffix in STATIC_UI for x in files)) \
+                and not NOT_UI & set(rel.lower().split("/")):
+            uis.append(dict(name=name, path=rel, language="HTML", framework="static site", kind="web-frontend",
+                            build_commands=[], deployable=True, port=8080, has_dockerfile=False,
+                            reasoning=f"{rel}/index.html with JS/CSS and no build manifest"))
+            continue                                  # keep walking: a backend may live below the UI folder
         else:
             continue
         dirs[:] = []                                  # sub-folders belong to this component
+    inside = lambda p, parents: any(p != q and (q == "." or p.startswith(q + "/")) for q in parents)  # noqa: E731
+    uis = [u for u in uis if not inside(u["path"], [x["path"] for x in uis]) and not inside(u["path"], [c["path"] for c in comps])]
+    for ui in uis:                                    # a static UI served by a backend ships inside that backend
+        host = next(((c, at) for c in comps if c["kind"] == "api" and (at := _serves(ws, c, ui["path"]))), None)
+        if host:
+            host[0].update(kind="web-app", serves_ui=ui["path"], reasoning=f"serves the UI in {ui['path']}/ ({host[1]})")
+            if not ui["path"].startswith(host[0]["path"] + "/"):
+                _widen(host[0], ui["path"])
+        else:
+            comps.append(ui)
     return comps
+
+
+def _widen(comp: dict, ui: str) -> None:
+    """The UI lives outside the backend folder: build the component from their common parent so the container holds
+    both; the commands still run in the backend folder (app_dir)."""
+    parent = os.path.commonpath([comp["path"], ui]).replace("\\", "/") if comp["path"] != "." else "."
+    sub = os.path.relpath(comp["path"], parent or ".").replace("\\", "/")
+    cd = lambda c: f"cd {sub} && {c}" if c else c  # noqa: E731
+    comp.update(path=parent or ".", app_dir=sub, build_commands=[cd(c) for c in comp["build_commands"]],
+                test_command=cd(comp.get("test_command", "")), package_command=cd(comp.get("package_command", "")),
+                test_reports=[f"{sub}/{r}" for r in comp.get("test_reports", [])],
+                artifacts=[f"{sub}/{a}" for a in comp.get("artifacts", [])])
+
+
+def app_name(ws: Path, repo: str) -> str:
+    """The <title> of the app's index.html when it is a real name, else the cleaned repository name."""
+    for f in [ws / "index.html", *ws.glob("*/index.html"), *ws.glob("*/public/index.html"), *ws.glob("*/static/index.html")]:
+        m = re.search(r"<title>\s*([^<]{3,60}?)\s*</title>", _read(f), re.I)
+        if m and m.group(1).lower() not in ("document", "react app", "vite app", "vite + react", "vite + react + ts", "index"):
+            return m.group(1)
+    return clean_app_name(repo)
 
 
 def ensure_coverage(comp: dict, draft: list[dict]) -> dict:
@@ -153,6 +215,7 @@ class PlannerAgent:
         task_id, ws, t0 = state["task_id"], Path(state["workspace"]), time.time()
         await emit(task_id, self.node_name, StreamStatus.START, "Reading the repository to plan the pipeline")
         draft = rule_plan(ws, state.get("repo", ""))
+        name = app_name(ws, state.get("repo", ""))
         await emit(task_id, self.node_name, StreamStatus.PROGRESS,
                    f"build files found: {', '.join(c['path'] + ' (' + c['language'] + ')' for c in draft) or 'none'}")
         llm = await LLMProvider().get_llm(state.get("provider"))
@@ -165,7 +228,12 @@ class PlannerAgent:
                 "every deployable or buildable component: language, framework, the exact shell commands to install "
                 "dependencies and build it, the unit-test command that writes a machine-readable report (JUnit XML, Jest "
                 "JSON or `go test -json`), where that report lands, the package command, whether it is a server / web site, "
-                "its port and whether it has a Dockerfile. A draft from file detection is given – confirm or correct it.",
+                "its port and whether it has a Dockerfile. A draft from file detection is given – confirm or correct it. "
+                "Classify only from evidence in the files (cite file:line in reasoning). A backend that serves a folder of "
+                "HTML/JS/CSS (StaticFiles, FileResponse('index.html'), express.static, send_from_directory, Spring static/) is "
+                "kind web-app with serves_ui = that folder; when that folder is outside the backend folder, plan ONE "
+                "component whose path is their common parent so the container holds both. Never merge components otherwise. "
+                "An app_name is the short human name of the application (README title, UI title or what it does).",
                 f"Draft plan:\n{json.dumps(draft, indent=1)}\n\nRepository root listing:\n{await tools.list_files('.', 2)}",
                 task_id, self.node_name, max_steps=10)
             result = await ask_structured(llm, RepoPlan, "Turn the notes into the final build plan. Keep commands runnable "
@@ -174,9 +242,10 @@ class PlannerAgent:
             if result and result.components:
                 plan = [ensure_coverage(c.model_dump(), draft) for c in result.components if (ws / c.path).is_dir()]
                 summary, how = result.summary, f"LLM ({state.get('provider')}) after exploring the repo"
+                name = clean_app_name(result.app_name) if result.app_name.strip() else name
         for c in plan:
             await emit(task_id, self.node_name, StreamStatus.PROGRESS,
-                       f"■ {c['name']}: {c['language']} {c['framework']} ({c['kind']}) – build: {' && '.join(c['build_commands']) or '-'}"
+                       f"■ {c['name']}: {c['language']} {c['framework']} ({c['kind']}{', serves UI ' + c['serves_ui'] if c.get('serves_ui') else ''}) – build: {' && '.join(c['build_commands']) or '-'}"
                        f" · tests: {c['test_command'] or 'none'}")
         opts = state.get("options") or {}
         execution_plan = [{"name": "security_agent"}, {"name": "security_review"}]
@@ -187,8 +256,8 @@ class PlannerAgent:
         execution_plan.append({"name": "report_agent"})
         message = f"{len(plan)} component(s) – planned by {how}"
         await emit(task_id, self.node_name, StreamStatus.END, message, data={"components": plan, "plan": execution_plan})
-        return {"components": plan, "execution_plan": execution_plan, "step_index": 0,
+        return {"components": plan, "execution_plan": execution_plan, "step_index": 0, "app_name": name,
                 "steps": {"plan": step_record("plan", "Plan the pipeline", "discovery", "passed" if plan else "warning",
                                               message, items=plan, item_type="components", started=t0,
-                                              summary={"application": summary, "planned by": how,
+                                              summary={"app name": name, "application": summary, "planned by": how,
                                                        "stages": " → ".join(s["name"] for s in execution_plan)})}}

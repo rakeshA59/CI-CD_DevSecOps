@@ -138,7 +138,7 @@ class SecurityAgent:
             if isinstance(res, Exception):
                 res = {"status": "error", "message": str(res), "findings": []}
             findings += res.get("findings", [])
-            status = {"ok": "passed" if not res.get("findings") else "warning", "skipped": "skipped"}.get(res["status"], "error")
+            status = {"ok": "passed", "skipped": "skipped"}.get(res["status"], "error")       # findings colour the ⓘ
             replaced = [f for f, n in backup.items() if n == name]
             if replaced and status == "error":            # the fallback took over – not an error of the pipeline
                 status, res = "skipped", {**res, "message": f"could not run ({res.get('message', '')[:200]}) – replaced by {', '.join(replaced)}"}
@@ -168,7 +168,7 @@ class SecurityAgent:
         stop = not gate["passed"] and not (state.get("options") or {}).get("continue_on_fail")
         message = f"{len(findings)} findings from {len(chosen)} scanners · gate {'PASS' if gate['passed'] else 'FAIL'}"
         await emit(task_id, self.node_name, StreamStatus.END, message)
-        steps["security_gate"] = step_record("security_gate", "HITL – review reports", "security", "passed" if gate["passed"] else "failed",
+        steps["security_gate"] = step_record("security_gate", "HITL – review reports", "security", "failed" if stop else "passed",
                                              "; ".join(f"{c['name']} = {c['actual']} (needs {c['required']})" for c in gate["checks"]
                                                        if not c["passed"]) or "all checks passed",
                                              items=gate["checks"], item_type="checks", explanation=summary)

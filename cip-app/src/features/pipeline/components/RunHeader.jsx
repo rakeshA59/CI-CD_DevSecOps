@@ -45,9 +45,10 @@ export default function RunHeader() {
             <CardContent className="space-y-3 px-4">
                 <div className="flex flex-wrap items-center gap-3">
                     <StatusBadge status={overall} className="px-3 py-1 text-sm" />
-                    <h1 className="text-lg font-bold">{run.repo}</h1>
+                    <h1 className="text-lg font-bold">{run.app_name || run.repo}</h1>
                     <span className="text-muted-foreground flex items-center gap-1 text-xs">
-                        <FolderGit2 className="size-3.5" /> {run.source_type} · {run.source}
+                        <FolderGit2 className="size-3.5" /> {run.repo} · {run.source_type} ·{' '}
+                        {run.source}
                     </span>
                     {info.branch && (
                         <span className="text-muted-foreground flex items-center gap-1 text-xs">

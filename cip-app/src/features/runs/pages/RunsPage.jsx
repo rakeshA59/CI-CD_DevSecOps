@@ -30,7 +30,7 @@ export default function RunsPage() {
                     <TableHeader>
                         <TableRow>
                             <TableHead>Result</TableHead>
-                            <TableHead>Repository</TableHead>
+                            <TableHead>Application</TableHead>
                             <TableHead>Source</TableHead>
                             <TableHead>Started</TableHead>
                             <TableHead>Duration</TableHead>
@@ -50,7 +50,7 @@ export default function RunsPage() {
                                     />
                                 </TableCell>
                                 <TableCell>
-                                    <div className="font-medium">{r.repo}</div>
+                                    <div className="font-medium">{r.app_name || r.repo}</div>
                                     <div className="text-muted-foreground max-w-sm truncate text-xs">
                                         {r.source}
                                     </div>

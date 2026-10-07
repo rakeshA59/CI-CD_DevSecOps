@@ -90,6 +90,9 @@ async def docker_run(image: str, name: str, network: str, port: int, env: dict |
 
 async def docker_remove(names: list[str], network: str = "") -> dict:
     """Remove containers (and the network) after the tests."""
+    if network:                                       # + everything else on the run's network (e.g. the gateway)
+        _, more = await _docker("ps", "-aq", "--filter", f"network={network}", timeout=30)
+        names = [*names, *more.split()]
     for n in names:
         await _docker("rm", "-f", n, timeout=60)
     if network:
@@ -119,13 +122,36 @@ async def docker_push(image: str, registry: str, repository: str) -> dict:
 
 async def remove_run_containers(run_key: str) -> list[str]:
     """Remove every container and network of one run (their names contain the run key) – used by Stop."""
-    _, names = await _docker("ps", "-a", "--filter", f"name={run_key}", "--format", "{{.Names}}", timeout=30)
-    names = names.split()
+    code, names = await _docker("ps", "-a", "--filter", f"name={run_key}", "--format", "{{.Names}}", timeout=20)
+    names = names.split() if code == 0 else []
     if names:
-        await _docker("rm", "-f", *names, timeout=120)
-    _, nets = await _docker("network", "ls", "--filter", f"name={run_key}", "--format", "{{.Name}}", timeout=30)
-    for net in nets.split():
-        await _docker("network", "rm", net, timeout=30)
+        await _docker("rm", "-f", *names, timeout=60)
+    code, nets = await _docker("network", "ls", "--filter", f"name={run_key}", "--format", "{{.Name}}", timeout=20)
+    for net in nets.split() if code == 0 else []:
+        await _docker("network", "rm", net, timeout=20)
+    return names
+
+
+async def remove_run_images(tag: str) -> list[str]:
+    """Free disk space after a run: untag the run's images (build, registry copy, gateway – they share the tag).
+    Images a container still uses (the UAT app) stay – no force."""
+    code, out = await _docker("images", "--format", "{{.Repository}}:{{.Tag}}", timeout=30)
+    images = [i for i in out.split() if i.endswith(f":{tag}")] if code == 0 else []
+    for image in images:
+        await _docker("rmi", image, timeout=60)
+    if images:
+        await _docker("image", "prune", "-f", timeout=120)          # dangling layers left behind
+    return images
+
+
+async def restore_uat_apps() -> list[str]:
+    """UAT apps that are stopped (Docker / PC restarted, or deployed before they got a restart policy): give them
+    --restart unless-stopped and start them again. Called when the API starts."""
+    code, names = await _docker("ps", "-a", "--filter", "name=cip-uat-", "--filter", "status=exited", "--format", "{{.Names}}", timeout=30)
+    names = names.split() if code == 0 else []         # Docker not running → nothing to do
+    if names:
+        await _docker("update", "--restart", "unless-stopped", *names, timeout=60)
+        await _docker("start", *names, timeout=120)
     return names
 
 

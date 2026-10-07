@@ -7,6 +7,7 @@ each service answers HTTP. One class, two environments:
                            was requested (guided flow)
 """
 
+import re
 import time
 from pathlib import Path
 
@@ -20,6 +21,23 @@ from llmapi.llm_provider import LLMProvider
 from mcp_services.mcp_clients.mcp_tool_client import docker_client
 from services.stream_event_writer import StreamStatus
 from utils.agent_events import emit, step_record
+
+
+GATEWAY_CONF = """server {{
+    listen 8080;
+    resolver 127.0.0.11 valid=10s ipv6=off;          # Docker DNS: follows the containers when they restart
+    location ~ ^({api})(/|$) {{ set $up http://{backend}; proxy_pass $up; proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; }}
+    location / {{ set $up http://{frontend}; proxy_pass $up; proxy_set_header Host $http_host; }}
+}}
+"""
+
+
+def api_paths(folder: Path) -> list[str]:
+    """The paths the front-end's dev server proxies to the back-end (vite / angular proxy config), else /api."""
+    text = "".join(f.read_text(errors="replace") for f in [*folder.glob("vite.config.*"), *folder.glob("proxy.conf*.json")])
+    found = re.findall(r"""["'](/[\w\-/]*[\w\-])["']\s*:""", text[text.find("proxy"):] if "proxy" in text else "")
+    return sorted(set(found)) or ["/api"]
 
 
 class DeployAgent:
@@ -48,13 +66,18 @@ class DeployAgent:
         prefix = "cip" if self.env == "dev" else f"cip-{self.env}"
         network, docker, services = f"{prefix}-{task_id[-12:].lower().strip('-')}", docker_client(), []
         for name, image in images.items():
-            await emit(task_id, self.node_name, StreamStatus.COMMAND, f"$ docker run -d --network {network} -p 127.0.0.1::{image['port']} {image['image']}")
+            await emit(task_id, self.node_name, StreamStatus.COMMAND, f"$ docker run -d{' --restart unless-stopped' if self.env != 'dev' else ''} --network {network} "
+                       f"-p 127.0.0.1::{image['port']} {image['image']}")
             res = await docker.call_tool("docker_run", {"image": image["image"], "name": f"{network}-{name}", "network": network,
                                                         "port": image["port"], "alias": name, "keep": self.env != "dev"})
             services.append({"component": name, "image": image["image"], **res})
             await emit(task_id, self.node_name, StreamStatus.PROGRESS, f"{name}: {res.get('url') or '-'} → {res['status']} ({res.get('message')})")
         healed, notes, lanes = await self._heal(state, services, images, network, docker)
+        await self._gateway(state, services, images, network, docker)
         ok = all(s["status"] == "passed" for s in services)
+        failed = [f"{network}-{s['component']}" for s in services if s["status"] != "passed"]
+        if failed and self.env != "dev":                  # a UAT app that never came up would restart forever – remove it
+            await docker.call_tool("docker_remove", {"names": failed})
         msg = ", ".join(f"{s['component']} {s.get('url', '')} {s['status']}" for s in services)
         await emit(task_id, self.node_name, StreamStatus.END if ok else StreamStatus.ERROR, msg)
         return {self.key: {"network": network, "services": services}, "step_index": state["step_index"] + 1,
@@ -64,6 +87,39 @@ class DeployAgent:
                                                     summary={"network": network, "environment": self.env,
                                                              "via": docker.last_transport,
                                                              **({"self-heal attempts": healed} if healed else {})})}}
+
+    async def _gateway(self, state: PipelineState, services: list, images: dict, network: str, docker) -> None:
+        """A separate web front-end + back-end → one URL for users: a small nginx in front of both sends the API paths
+        to the back-end and everything else to the front-end. The front-end's URL becomes the gateway URL, so the
+        functional and UI tests use the app the way a user does."""
+        kinds = {c["name"]: c for c in state.get("components", [])}
+        up = [s for s in services if s["status"] == "passed"]
+        front = next((s for s in up if kinds.get(s["component"], {}).get("kind") == "web-frontend"), None)
+        back = next((s for s in up if kinds.get(s["component"], {}).get("kind") in ("api", "web-app")), None)
+        if not (front and back):
+            return
+        task_id, tag = state["task_id"], images[front["component"]]["image"].rsplit(":", 1)[-1]
+        paths = api_paths(Path(state["workspace"]) / kinds[front["component"]]["path"])
+        folder = Path(state["run_dir"]) / f"gateway-{self.env}"
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "default.conf").write_text(GATEWAY_CONF.format(
+            api="|".join(re.escape(x) for x in paths), backend=back["internal_url"].removeprefix("http://"),
+            frontend=front["internal_url"].removeprefix("http://")), encoding="utf-8")
+        (folder / "Dockerfile").write_text("FROM nginxinc/nginx-unprivileged:1.27-alpine\n"
+                                           "COPY default.conf /etc/nginx/conf.d/default.conf\nEXPOSE 8080\n", encoding="utf-8")
+        await emit(task_id, self.node_name, StreamStatus.COMMAND,
+                   f"$ docker run gateway: {', '.join(paths)} → {back['component']}, everything else → {front['component']}")
+        built = await docker.call_tool("docker_build", {"context": str(folder), "tag": f"cip-gateway:{tag}"})
+        res = await docker.call_tool("docker_run", {"image": f"cip-gateway:{tag}", "name": f"{network}-app", "network": network,
+                                                    "port": 8080, "alias": "app", "keep": self.env != "dev"}) \
+            if built.get("built") else {"status": "failed", "message": built.get("log", "")[-300:]}
+        if res["status"] == "passed":
+            front.update(direct_url=front["url"], url=res["url"], gateway=f"{', '.join(paths)} → {back['component']}")
+            await emit(task_id, self.node_name, StreamStatus.PROGRESS, f"app (one URL for users): {res['url']} – "
+                       f"{', '.join(paths)} → {back['component']}, the rest → {front['component']}")
+        else:
+            await emit(task_id, self.node_name, StreamStatus.PROGRESS, f"gateway did not start ({res.get('message')}) – "
+                       f"use the {front['component']} and {back['component']} URLs")
 
     async def _heal(self, state: PipelineState, services: list, images: dict, network: str, docker) -> tuple[int, str, dict]:
         """Guided flow: a service that does not come up is investigated from its container log, its Dockerfile / start

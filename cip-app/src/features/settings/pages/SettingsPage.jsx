@@ -118,7 +118,7 @@ export default function SettingsPage() {
     return (
         <div className="w-full space-y-3">
             <h1 className="text-xl font-bold">Settings</h1>
-            <Section icon={Bot} title="LLM providers" hint="keys from cip-api/.env" defaultOpen>
+            <Section icon={Bot} title="LLM" hint="model in use · + Add model" defaultOpen>
                 <LlmProviders />
             </Section>
             {data && (

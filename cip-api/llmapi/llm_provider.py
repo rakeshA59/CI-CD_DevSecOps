@@ -23,12 +23,19 @@ from core.settings import DEFAULT_LLM_PROVIDER, env
 
 PROVIDERS = {
     "azure_openai": {"label": "Azure OpenAI", "env": ["openai_base_url", "openai_api_key", "openai_deployment_name"],
-                     "model_env": "openai_deployment_name"},
-    "openai": {"label": "OpenAI", "env": ["openai_api_key", "openai_model"], "model_env": "openai_model"},
+                     "model_env": "openai_deployment_name",
+                     "fields": [("openai_base_url", "Endpoint (https://<resource>.openai.azure.com)", False),
+                                ("openai_deployment_name", "Deployment name (the model)", False),
+                                ("openai_api_version", "API version (e.g. 2025-04-01-preview)", False),
+                                ("openai_api_key", "API key", True)]},
+    "openai": {"label": "OpenAI", "env": ["openai_api_key", "openai_model"], "model_env": "openai_model",
+               "fields": [("openai_model", "Model (e.g. gpt-4.1)", False), ("openai_api_key", "API key", True)]},
     "anthropic": {"label": "Anthropic Claude", "env": ["anthropic_api_key"], "model_env": "anthropic_deployment_name",
-                  "default_model": "claude-sonnet-4-5"},
+                  "default_model": "claude-sonnet-4-5",
+                  "fields": [("anthropic_model", "Model (e.g. claude-sonnet-4-5)", False), ("anthropic_api_key", "API key", True)]},
     "gemini": {"label": "Google Gemini", "env": ["google_api_key"], "model_env": "gemini_model",
-               "default_model": "gemini-2.5-flash-lite"},
+               "default_model": "gemini-2.5-flash-lite",
+               "fields": [("gemini_model", "Model (e.g. gemini-2.5-flash)", False), ("google_api_key", "API key", True)]},
     "none": {"label": "No LLM (rules only)", "env": []},
 }
 

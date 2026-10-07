@@ -17,9 +17,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from core.settings import CORS_ORIGINS, DOCKER_MCP_URL, ENVIRONMENT, RUNS_DIR, SCANNER_MCP_URL, STREAM_DB_PATH, env
 from graph_builders.pipeline_graph_builder import get_pipeline_graph
 from mcp_services.mcp_clients.mcp_tool_client import ipv4, reachable
+from mcp_services.mcp_servers.docker_mcp.docker_ops import restore_uat_apps
 from repositories.pipeline_repository import PipelineRepository
 from routers import llm_router, pipeline_router, settings_router
-from routers.settings_router import load_sonar
+from routers.settings_router import load_saved_env
 from services.stream_event_writer import stream_writer
 from utils.mongo_connection import get_mongo_client
 
@@ -62,10 +63,12 @@ async def lifespan(app: FastAPI):
     except Exception:
         logging.exception("MongoDB not reachable – set mongo_db_url in .env")
     try:
-        await load_sonar()                          # SonarQube URL / token saved in Settings → scanners
+        await load_saved_env()                      # SonarQube + LLM keys saved in Settings
     except Exception:
-        logging.exception("could not load the SonarQube settings")
+        logging.exception("could not load the saved settings")
     mcp_procs = await start_mcp_servers()
+    restore = asyncio.create_task(restore_uat_apps())   # bring stopped UAT apps back (does not delay the start-up)
+    restore.add_done_callback(lambda t: t.cancelled() or t.exception() or logging.info("UAT apps started again: %s", t.result() or "none"))
     yield
     for p in mcp_procs:
         p.terminate()
