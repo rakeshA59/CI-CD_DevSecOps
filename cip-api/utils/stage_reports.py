@@ -65,7 +65,7 @@ def stage_report(step: dict) -> dict:
 
 
 GATE_OF = {"test": "test_gate", "image": "container_gate", "functional": "functional_gate", "ui_tests": "ui_gate"}
-QUALITY_STEPS = ("scan", "security_gate", "test", "image", "functional", "ui_tests")
+QUALITY_STEPS = ("scan", "security_gate", "test", "image", "functional", "ui_tests", "publish_tests")
 HIDDEN_GATES = ("test_gate", "container_gate", "functional_gate", "ui_gate")      # shown inside the step they check
 
 

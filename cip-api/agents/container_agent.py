@@ -80,11 +80,13 @@ class ContainerAgent:
                                                 ", ".join(pkg["artifacts"][:10]) or "no artifact files", name,
                                                 commands=tools.commands, started=t0)}
         result["package"] = pkg
+        await emit(task_id, f"package.{name}", StreamStatus.END, steps[f"package.{name}"]["message"], parent="component_lanes")
         opts = state.get("options") or {}
         if not comp["deployable"] or not opts.get("containerize", True):
             return {"result": result, "steps": steps}
 
         node, t1 = f"image.{name}", time.time()
+        tools.node = node                                 # the agent's Dockerfile fixes belong to the image step
         await emit(task_id, node, StreamStatus.START, f"Containerising {name}", parent="component_lanes")
         docker = docker_client()
         if not (await docker.call_tool("docker_status", {}))["running"]:

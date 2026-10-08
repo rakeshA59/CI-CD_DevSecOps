@@ -40,7 +40,7 @@ INSTALL_HINT = "run: python scripts\\install_scanners.py (or start Docker for th
 # API's libraries break semgrep, so a copy in the API's venv is never used.
 PY_TOOLS = {"semgrep", "bandit", "ruff", "pip-audit"}
 INSTALL_AS = {**{t: "python" for t in PY_TOOLS}, "trivy-fs": "trivy", "osv-scanner": "osv-scanner", "gitleaks": "gitleaks",
-              "trufflehog": "trufflehog", "snyk": "snyk"}      # scanner → what install_scanners.py installs for it
+              "trufflehog": "trufflehog", "snyk": "snyk", "biome": "biome"}   # scanner → what install_scanners.py installs
 
 
 # ------------------------------------------------------------------ helpers
@@ -74,7 +74,7 @@ def _rel(path: str, root: str) -> str:
 
 
 def find_tool(binary: str) -> str | None:
-    for folder in ("bin", "Scripts", "codeql"):
+    for folder in ("bin", "Scripts", "codeql", "node/node_modules/.bin"):
         found = shutil.which(binary, path=str(SCANNER_HOME / folder))
         if found:
             return found
@@ -250,6 +250,29 @@ async def ruff(path: str, ctx: dict) -> dict:
                                    f"{r.get('code')}: {r.get('message')}", file=_rel(r.get("filename"), path),
                                    line=(r.get("location") or {}).get("row"), rule_id=r.get("code"),
                                    recommendation=(r.get("fix") or {}).get("message") or "") for r in data])
+
+
+async def biome(path: str, ctx: dict) -> dict:
+    """Biome's recommended rules – lints JS / TS / JSX without a config in the repo (used when there is no ESLint config)."""
+    exe = find_tool("biome")
+    if not exe:
+        return skipped("biome", f"biome not installed – {INSTALL_HINT}")
+    findings = []
+    for d in _components(path, ctx, "JavaScript", "TypeScript"):
+        code, out, err = await _run([exe, "lint", "--reporter=json", "--max-diagnostics=1000", "--files-ignore-unknown=true", "."],
+                                    cwd=str(d), timeout=900)
+        data = _json(out, None)
+        if data is None:
+            return result("biome", status="error", message=cause(err or out) or f"biome exit {code}")
+        for g in data.get("diagnostics", []):
+            loc = g.get("location") or {}
+            file = loc.get("path") if isinstance(loc.get("path"), str) else (loc.get("path") or {}).get("file")
+            line = (loc.get("start") or {}).get("line")
+            rule = g.get("category") or "biome"
+            findings.append(finding("biome", "code_quality", "MEDIUM" if "/suspicious/" in rule or "/correctness/" in rule else "LOW",
+                                    f"{rule}: {g.get('description') or g.get('message') or ''}"[:200],
+                                    file=_rel(str(d / file), path) if file else None, line=line, rule_id=rule))
+    return result("biome", findings, message=f"{len(findings)} findings (Biome recommended rules – the repo has no ESLint config)")
 
 
 async def eslint(path: str, ctx: dict) -> dict:
@@ -576,6 +599,7 @@ CATALOG = {
     "codeql":        (codeql,        "CodeQL (SAST)",                            "sast",       "installed"),
     "ruff":          (ruff,          "Ruff (Python lint)",                       "quality",    "Python"),
     "eslint":        (eslint,        "ESLint (JS/TS lint)",                      "quality",    "Node"),
+    "biome":         (biome,         "Biome (JS/TS lint, no config needed)",     "quality",    "Node, no ESLint config"),
     "trivy-fs":      (trivy_fs,      "Trivy (dependencies + IaC)",               "dependency", "always"),
     "osv-scanner":   (osv_scanner,   "OSV-Scanner (dependencies)",               "dependency", "always"),
     "pip-audit":     (pip_audit,     "pip-audit (Python dependencies)",          "dependency", "Python"),
@@ -615,10 +639,10 @@ SCAN_TYPES = {
     "secrets": ("Secrets", ["gitleaks", "trufflehog"]),
 }
 QUALITY = {"ruff": "Python", "eslint": "Node"}            # code-quality lint: one per language, never blocks the gate
-FALLBACK = {"sonarqube": ["semgrep"], "codeql": ["semgrep"], "snyk": ["trivy-fs"], "trivy-fs": ["npm-audit", "pip-audit"],
+FALLBACK = {"eslint": ["biome"], "sonarqube": ["semgrep"], "codeql": ["semgrep"], "snyk": ["trivy-fs"], "trivy-fs": ["npm-audit", "pip-audit"],
             "osv-scanner": ["npm-audit", "pip-audit"], "gitleaks": ["trufflehog"]}
 CODEQL_LANGS = {"JavaScript", "TypeScript", "Python", "Java", "Go", "C#", "C++", "Ruby", "Kotlin", "Swift"}
-NEEDS = {"bandit": "Python", "pip-audit": "Python", "ruff": "Python", "npm-audit": "Node", "eslint": "Node"}
+NEEDS = {"bandit": "Python", "pip-audit": "Python", "ruff": "Python", "npm-audit": "Node", "eslint": "Node", "biome": "Node"}
 SETUP = {"sonarqube": "no SonarQube server configured (sonar_host_url + sonar_token)",
          "codeql": "the CodeQL CLI is not installed (install_scanners.py --codeql)",
          "snyk": "no snyk_token configured", "github-alerts": "no github_token configured"}
@@ -660,10 +684,15 @@ def pick_scanners(languages: set[str], github: bool, override: dict | None = Non
             reason = f"best available for {langs}" + (f" – {'; '.join(skipped)}" if skipped else "")
         plan.append({"type": t, "label": label, "tool": tool, "tool_label": CATALOG[tool][1], "reason": reason,
                      "fallback": [f for f in FALLBACK.get(tool, []) if fits(f, languages)]})
-    for tool, lang in QUALITY.items():
+    sonar = any(p["tool"] == "sonarqube" for p in plan)
+    for p in plan:
+        if sonar and p["tool"] == "sonarqube":
+            p["reason"] += " · also checks code quality, so no separate linter runs"
+    for tool, lang in ({} if sonar else QUALITY).items():
         if fits(tool, languages):
             plan.append({"type": "quality", "label": "Code quality (lint, never blocks)", "tool": tool,
-                         "tool_label": CATALOG[tool][1], "reason": f"the linter for {lang}", "fallback": []})
+                         "tool_label": CATALOG[tool][1], "reason": f"the linter for {lang}",
+                         "fallback": [f for f in FALLBACK.get(tool, []) if fits(f, languages)]})
     if github and available("github-alerts"):
         plan.append({"type": "platform", "label": "Platform alerts", "tool": "github-alerts",
                      "tool_label": CATALOG["github-alerts"][1], "reason": "GitHub repository with a token", "fallback": []})
@@ -720,6 +749,7 @@ async def ensure_scanner(name: str, force: bool = False) -> dict:
         try:
             inst = _installer()
             where = await asyncio.to_thread(inst.install_python_tools, force) if target == "python" else \
+                await asyncio.to_thread(inst.install_node_tool, target) if target in inst.NODE_TOOLS else \
                 await asyncio.to_thread(inst.install_binary, target)
         except Exception as e:  # noqa: BLE001 – no network, no permission … → the next healing step takes over
             return {"ok": False, "message": cause(str(e)) or str(e)}

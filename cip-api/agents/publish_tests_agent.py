@@ -95,7 +95,7 @@ class PublishTestsAgent:
         cases = [{**c, "suite": s} for s, cs in suites.items() for c in cs]
         passed = sum(c["status"] == "passed" for c in cases)
         failed = sum(c["status"] in ("failed", "error") for c in cases)
-        status = "skipped" if not cases else "passed" if not failed else "warning"
+        status = "passed" if cases else "skipped"           # published; failed cases colour the ⓘ
         msg = (f"{passed}/{len(cases)} passed in {len(suites)} suite(s) · published junit.xml + test-report.html"
                if cases else "no test results to publish (no tests ran)")
         await emit(task_id, self.node_name, StreamStatus.END, msg)

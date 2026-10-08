@@ -1,9 +1,8 @@
 /**
  * Graph model of a run – the same stages as the Pipeline view, as nodes and edges.
  *
- * One node per stage; a stage with one lane per component (Build & test, Containerise) becomes one node per
- * component, so the components run as parallel branches that fork after Security and join again at the next
- * shared stage (like the User Story / HLD branches of the SDLC graph). `level` = column (horizontal layout).
+ * Parallel work becomes parallel branches that fork and join again (like the User Story / HLD branches of the SDLC
+ * graph): the scanners of the Security stage and the component lanes. `level` = column (horizontal layout).
  */
 
 export const NODE = { width: 240, height: 64 };
@@ -12,39 +11,71 @@ export const PANEL_WIDTH = 270;
 
 const DONE = ['passed', 'failed', 'error', 'warning', 'skipped', 'blocked'];
 
+/**
+ * Columns of the graph. What runs in parallel in the code becomes parallel nodes:
+ *   - Security: one node per scanner (they run at the same time), joined by the human review (HITL) node
+ *   - Build & test / Containerise: one node per component (component lanes run at the same time)
+ * Everything else runs one after the other: one node per stage.
+ */
+function columns(stages) {
+    const cols = [];
+    stages.forEach((stage) => {
+        const named = stage.lanes.filter((l) => l.lane);
+        const base = { stage: stage.title, agent: stage.agent };
+        if (named.length) {
+            cols.push(
+                named.map((l) => ({
+                    ...base,
+                    id: `${stage.title}:${l.lane}`,
+                    title: `${stage.title} · ${l.lane}`,
+                    lane: l.lane,
+                    steps: l.steps,
+                }))
+            );
+        } else if (stage.lanes.some((l) => l.group)) {
+            const steps = stage.lanes.flatMap((l) => l.steps);
+            const review = steps.filter(([id]) => id === 'security_gate');
+            const scans = steps.filter(([id]) => id !== 'security_gate');
+            if (scans.length)
+                cols.push(
+                    scans.map(([id, label]) => ({
+                        ...base,
+                        id,
+                        title: label,
+                        steps: [[id, label]],
+                    }))
+                );
+            if (review.length)
+                cols.push([
+                    { ...base, id: `${stage.title}:review`, title: review[0][1], steps: review },
+                ]);
+        } else {
+            cols.push([
+                {
+                    ...base,
+                    id: stage.title,
+                    title: stage.title,
+                    steps: stage.lanes.flatMap((l) => l.steps),
+                },
+            ]);
+        }
+    });
+    return cols;
+}
+
 export function buildGraph(stages) {
     const nodes = [];
     const edges = [];
     let open = []; // nodes of the previous columns that still need an outgoing edge
-    stages.forEach((stage, level) => {
-        const named = stage.lanes.filter((l) => l.lane);
-        const current = named.length
-            ? named.map((l) => ({
-                  id: `${stage.title}:${l.lane}`,
-                  stage: stage.title,
-                  title: `${stage.title} · ${l.lane}`,
-                  agent: stage.agent,
-                  lane: l.lane,
-                  steps: l.steps,
-                  level,
-              }))
-            : [
-                  {
-                      id: stage.title,
-                      stage: stage.title,
-                      title: stage.title,
-                      agent: stage.agent,
-                      steps: stage.lanes.flatMap((l) => l.steps),
-                      level,
-                  },
-              ];
+    columns(stages).forEach((current, level) => {
         current.forEach((n) => {
+            n.level = level;
             const sameLane = n.lane && open.find((p) => p.lane === n.lane);
             (sameLane ? [sameLane] : open).forEach((p) => edges.push({ from: p.id, to: n.id }));
         });
         const lanes = new Set(current.map((n) => n.lane).filter(Boolean));
         // a component without a node in this column (e.g. a library that is not containerised) stays open
-        open = named.length
+        open = current.some((n) => n.lane)
             ? [...current, ...open.filter((p) => p.lane && !lanes.has(p.lane))]
             : current;
         nodes.push(...current);

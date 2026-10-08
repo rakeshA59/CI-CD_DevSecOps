@@ -8,6 +8,7 @@ Install every scanner DevOps uses into cip-api/.scanners – no admin rights, no
     .scanners\\Scripts\\   semgrep, bandit, ruff, pip-audit   (own venv, from requirements-scanners.txt)
     .scanners\\bin\\       gitleaks, trivy, osv-scanner, trufflehog, snyk   (latest GitHub release binaries)
     .scanners\\codeql\\    CodeQL CLI + query packs
+    .scanners\\node\\      biome   (npm package – the JS/TS linter when a repo has no ESLint config)
 
 The scanner MCP server finds them there automatically. npm audit / ESLint use your Node.js install;
 SonarQube and GitHub alerts need sonar_host_url + sonar_token / github_token in .env (no install).
@@ -115,6 +116,18 @@ def install_binary(tool: str) -> str:
     return str(target)
 
 
+NODE_TOOLS = {"biome": "@biomejs/biome"}            # tool → npm package, installed into .scanners/node
+
+
+def install_node_tool(tool: str) -> str:
+    npm = shutil.which("npm")
+    if not npm:
+        raise RuntimeError("Node.js / npm is not installed")
+    (HOME / "node").mkdir(parents=True, exist_ok=True)
+    subprocess.run([npm, "install", "--prefix", str(HOME / "node"), "--no-audit", "--no-fund", NODE_TOOLS[tool]], check=True)
+    return str(HOME / "node" / "node_modules" / ".bin")
+
+
 def install_python_tools(force: bool = False) -> str:
     py = HOME / ("Scripts/python.exe" if OS == "windows" else "bin/python")
     if not py.exists():
@@ -129,15 +142,16 @@ def install_python_tools(force: bool = False) -> str:
 def main() -> int:
     sys.stdout.reconfigure(errors="replace")       # old Windows consoles (cp1252) cannot print every character
     parser = argparse.ArgumentParser(description="Install CIP's security scanners into cip-api/.scanners")
-    parser.add_argument("tools", nargs="*", help="only these (python, gitleaks, trivy, osv-scanner, trufflehog, snyk, codeql)")
+    parser.add_argument("tools", nargs="*", help="only these (python, gitleaks, trivy, osv-scanner, trufflehog, snyk, biome, codeql)")
     parser.add_argument("--codeql", action="store_true", help="also install the CodeQL bundle (~1 GB)")
     args = parser.parse_args()
-    tools = args.tools or ["python", "gitleaks", "trivy", "osv-scanner", "trufflehog", "snyk"] + (["codeql"] if args.codeql else [])
+    tools = args.tools or ["python", "gitleaks", "trivy", "osv-scanner", "trufflehog", "snyk", "biome"] + (["codeql"] if args.codeql else [])
     ok, failed = [], []
     for tool in tools:
         print(f"[{tool}]", flush=True)
         try:
-            where = install_python_tools() if tool == "python" else install_binary(tool)
+            where = install_python_tools() if tool == "python" else install_node_tool(tool) if tool in NODE_TOOLS \
+                else install_binary(tool)
             ok.append(tool)
             print(f"  OK {where}")
         except Exception as e:  # noqa: BLE001 – keep going with the other tools

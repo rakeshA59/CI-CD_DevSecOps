@@ -132,6 +132,7 @@ class SecurityAgent:
         if backup:
             await emit(task_id, self.node_name, StreamStatus.PROGRESS,
                        "fallback: " + ", ".join(f"{f} instead of {n}" for f, n in backup.items()))
+            heal.update(await self._prepare(task_id, client, list(backup)))          # e.g. Biome: installed on first use
             results.update(zip(backup, await asyncio.gather(*(scan(f) for f in backup), return_exceptions=True)))
         steps, findings = {}, []
         for name, res in results.items():
@@ -140,8 +141,9 @@ class SecurityAgent:
             findings += res.get("findings", [])
             status = {"ok": "passed", "skipped": "skipped"}.get(res["status"], "error")       # findings colour the ⓘ
             replaced = [f for f, n in backup.items() if n == name]
-            if replaced and status == "error":            # the fallback took over – not an error of the pipeline
-                status, res = "skipped", {**res, "message": f"could not run ({res.get('message', '')[:200]}) – replaced by {', '.join(replaced)}"}
+            if replaced and status in ("error", "skipped"):   # the fallback took over – not an error of the pipeline
+                status, res = "skipped", {**res, "message": f"could not run ({res.get('message', '')[:200]}) – replaced by "
+                                                              f"{', '.join(CATALOG[f][1] for f in replaced)}"}
             await emit(task_id, self.node_name, StreamStatus.PROGRESS, f"{name}: {res.get('message')}")
             steps[f"scan.{name}"] = step_record(f"scan.{name}", CATALOG[name][1], "security", status, res.get("message", ""),
                                                 items=res.get("findings", []), item_type="findings", started=t0,
