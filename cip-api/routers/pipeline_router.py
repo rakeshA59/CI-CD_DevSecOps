@@ -44,7 +44,7 @@ async def start_pipeline(req: StartPipelineRequest) -> Any:
     if not is_remote(source) and not Path(source).expanduser().is_dir():
         raise HTTPException(status_code=400, detail=f"Not a GitHub URL and no such local folder: {source}")
     try:
-        return await PipelineService().start(source, req.branch, req.llm_provider, req.options.model_dump(), req.mode)
+        return await PipelineService().start(source, req.branch, req.llm_provider, req.options.model_dump(), req.mode, req.pipeline_name)
     except Exception as e:
         logging.exception("start failed")
         raise HTTPException(status_code=500, detail=str(e))

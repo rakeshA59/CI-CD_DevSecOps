@@ -200,7 +200,7 @@ export default function LogsView() {
                     </Button>
                 </div>
 
-                <div className="max-h-[640px] space-y-2 overflow-auto pr-1">
+                <div className="max-h-[calc(100vh-280px)] min-h-[300px] space-y-2 overflow-auto pr-1">
                     {shown.length === 0 && (
                         <div className="text-muted-foreground py-10 text-center text-sm">
                             {events.length ? 'No logs match your filters' : 'Waiting for events…'}

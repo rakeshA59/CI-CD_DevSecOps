@@ -20,7 +20,8 @@ class StartPipelineRequest(BaseModel):
     branch: Optional[str] = None
     llm_provider: Optional[str] = Field(None, description="azure_openai | openai | anthropic | gemini | none")
     options: RunOptions = RunOptions()
-    mode: str = Field("quick", description="quick = fixed flow · guided = questionnaire → derived pipeline → approval → UAT")
+    mode: str = Field("guided", description="guided = questionnaire → derived pipeline → approval → UAT")
+    pipeline_name: Optional[str] = Field(None, description="user-given name for the pipeline run")
 
 
 class QuestionnaireAnswers(BaseModel):

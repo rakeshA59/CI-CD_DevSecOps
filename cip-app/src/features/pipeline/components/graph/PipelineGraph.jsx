@@ -245,7 +245,7 @@ export default function PipelineGraph() {
     return (
         <div
             ref={box}
-            className="relative h-[640px] cursor-grab overflow-hidden rounded-lg border bg-[radial-gradient(circle,rgba(127,127,127,0.18)_1px,transparent_1px)] [background-size:22px_22px] select-none active:cursor-grabbing"
+            className="relative h-[calc(100vh-220px)] min-h-[400px] cursor-grab overflow-hidden rounded-lg border bg-[radial-gradient(circle,rgba(127,127,127,0.18)_1px,transparent_1px)] [background-size:22px_22px] select-none active:cursor-grabbing"
             onMouseDown={(e) => {
                 drag.current = { sx: e.clientX, sy: e.clientY, x: view.x, y: view.y };
             }}

@@ -89,7 +89,7 @@ class PipelineService:
     def __init__(self) -> None:
         self.repository = PipelineRepository()
 
-    async def start(self, source: str, branch: str | None, provider: str | None, options: dict, mode: str = "quick") -> dict:
+    async def start(self, source: str, branch: str | None, provider: str | None, options: dict, mode: str = "guided", pipeline_name: str | None = None) -> dict:
         """Create the run document and launch the graph in the background."""
         provider = provider or await self.repository.get_setting("llm_provider", DEFAULT_LLM_PROVIDER)
         repo = _repo_name(source)
@@ -99,7 +99,8 @@ class PipelineService:
         run_dir.mkdir(parents=True, exist_ok=True)
         mode = "guided" if mode == "guided" else "quick"
         doc = {"task_id": task_id, "source": source, "repo": repo, "app_name": app_name, "branch": branch, "provider": provider, "options": options,
-               "source_type": "git repo" if is_remote(source) else "local folder", "status": "RUNNING", "mode": mode}
+               "source_type": "git repo" if is_remote(source) else "local folder", "status": "RUNNING", "mode": mode,
+               "pipeline_name": pipeline_name or None}
         await self.repository.create_run(doc)
         state = {**doc, "run_dir": str(run_dir), "workspace": str(run_dir / "workspace"), "steps": {}, "lanes": {},
                  "findings": [], "gates": {}, "errors": [], "step_index": 0}

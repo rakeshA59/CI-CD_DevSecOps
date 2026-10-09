@@ -1,12 +1,13 @@
 import apiRepository, { API_BASE } from '@/core/repositories/apiRepository';
 
-export const startPipeline = (source, branch, llmProvider, options, mode = 'quick') =>
+export const startPipeline = (source, branch, llmProvider, options, mode = 'guided') =>
     apiRepository.post('/pipelines/start', {
         source,
         branch: branch || null,
         llm_provider: llmProvider,
         options,
         mode,
+        pipeline_name: options?.pipeline_name || null,
     });
 
 /** Guided flow: resume a paused run with the questionnaire answers / the approval decision. */

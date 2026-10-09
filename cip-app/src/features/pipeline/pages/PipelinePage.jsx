@@ -5,7 +5,8 @@ import { useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui/card';
 import ApprovalCard from '../components/ApprovalCard';
-import DerivedPipeline from '../components/DerivedPipeline';
+// DerivedPipeline hidden – kept for potential future use
+// import DerivedPipeline from '../components/DerivedPipeline';
 import PipelineGraph from '../components/graph/PipelineGraph';
 import LiveLogsPanel from '../components/LiveLogsPanel';
 import LogsView from '../components/LogsView';
@@ -115,7 +116,7 @@ export default function PipelinePage() {
                     <ApprovalCard />
                 </div>
             )}
-            {taskId && <DerivedPipeline />}
+            {/* DerivedPipeline hidden */}
             {taskId && <ViewSwitch view={current} setView={setView} logs={events.length} />}
             {current === 'pipeline' && (
                 <Card className="gap-3 py-4">

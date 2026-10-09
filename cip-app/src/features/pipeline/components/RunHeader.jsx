@@ -2,9 +2,7 @@ import { format } from 'date-fns';
 import {
     Bot,
     Download,
-    FileCode2,
     FileText,
-    FolderGit2,
     GitBranch,
     Route,
     Server,
@@ -17,7 +15,7 @@ import StatusBadge from '@/shared/components/StatusBadge';
 import { pdfUrl, testResultsUrl } from '../services/PipelineService';
 import usePipelineStore from '../store/usePipelineStore';
 
-/** Result of the run: overall, gates, root cause, PDF. */
+/** Result of the run: overall, gates, PDF. */
 export default function RunHeader() {
     const { run, live, taskId, stop } = usePipelineStore();
     const [stopping, setStopping] = useState(false);
@@ -45,11 +43,9 @@ export default function RunHeader() {
             <CardContent className="space-y-3 px-4">
                 <div className="flex flex-wrap items-center gap-3">
                     <StatusBadge status={overall} className="px-3 py-1 text-sm" />
-                    <h1 className="text-lg font-bold">{run.app_name || run.repo}</h1>
-                    <span className="text-muted-foreground flex items-center gap-1 text-xs">
-                        <FolderGit2 className="size-3.5" /> {run.repo} · {run.source_type} ·{' '}
-                        {run.source}
-                    </span>
+                    <h1 className="text-lg font-bold">
+                        {run.pipeline_name || run.app_name || run.repo}
+                    </h1>
                     {info.branch && (
                         <span className="text-muted-foreground flex items-center gap-1 text-xs">
                             <GitBranch className="size-3.5" /> {info.branch} @{' '}
@@ -69,7 +65,7 @@ export default function RunHeader() {
                     )}
                     {run.mode === 'guided' && (
                         <span className="border-primary/40 text-primary flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs">
-                            <Route className="size-3.5" /> Guided DevOps flow
+                            <Route className="size-3.5" /> Pipeline
                         </span>
                     )}
                     <span className="ml-auto" />
@@ -87,22 +83,15 @@ export default function RunHeader() {
                     )}
                     {run.steps?.publish_tests?.status &&
                         run.steps.publish_tests.status !== 'skipped' && (
-                            <>
-                                <Button asChild size="sm" variant="outline" className="gap-2">
-                                    <a
-                                        href={testResultsUrl(taskId, 'test-report.html')}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                    >
-                                        <FileText className="size-4" /> Test report
-                                    </a>
-                                </Button>
-                                <Button asChild size="sm" variant="outline" className="gap-2">
-                                    <a href={testResultsUrl(taskId, 'junit.xml')} download>
-                                        <FileCode2 className="size-4" /> junit.xml
-                                    </a>
-                                </Button>
-                            </>
+                            <Button asChild size="sm" variant="outline" className="gap-2">
+                                <a
+                                    href={testResultsUrl(taskId, 'test-report.html')}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                >
+                                    <FileText className="size-4" /> Test report
+                                </a>
+                            </Button>
                         )}
                     {report.pdf && (
                         <Button asChild size="sm" className="gap-2">
@@ -138,24 +127,6 @@ export default function RunHeader() {
                                 label={`${name} gate: ${g.blocked ? 'BLOCKED' : g.passed ? 'PASS' : 'FAIL'}`}
                             />
                         ))}
-                    </div>
-                )}
-                {!live && report.root_cause?.length > 0 && (
-                    <div className="rounded-md border border-l-4 border-l-red-500 bg-red-500/5 p-3 text-sm">
-                        <div className="mb-1 font-semibold">
-                            Why it did not pass – root cause first
-                        </div>
-                        <ol className="list-decimal space-y-0.5 pl-5">
-                            {report.root_cause.map((l) => (
-                                <li key={l}>{l}</li>
-                            ))}
-                        </ol>
-                        {report.explanation && (
-                            <div className="text-muted-foreground mt-2 flex gap-2">
-                                <Bot className="mt-0.5 size-4 shrink-0" />
-                                {report.explanation}
-                            </div>
-                        )}
                     </div>
                 )}
             </CardContent>

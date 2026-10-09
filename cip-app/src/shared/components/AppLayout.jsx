@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
     History,
     LayoutDashboard,
+    LogOut,
     Moon,
     PanelLeftClose,
     PanelLeftOpen,
@@ -11,6 +12,7 @@ import {
     Workflow,
 } from 'lucide-react';
 import { cn } from '@/core/lib/utils';
+import { logout, getSession } from '@/core/lib/auth';
 import { useTheme } from '@/shared/components/theme-provider';
 import { Button } from '@/shared/ui/button';
 
@@ -45,6 +47,9 @@ function useCollapsed() {
 export default function AppLayout() {
     const { theme, setTheme } = useTheme();
     const [collapsed, toggle] = useCollapsed();
+    const navigate = useNavigate();
+    const session = getSession();
+    const handleLogout = () => { logout(); navigate('/login', { replace: true }); };
     return (
         <div className="bg-background text-foreground flex min-h-screen">
             <aside
@@ -119,6 +124,19 @@ export default function AppLayout() {
                             <Moon className="size-4" />
                         )}
                         {!collapsed && (theme === 'dark' ? 'Light mode' : 'Dark mode')}
+                    </Button>
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        title={collapsed ? 'Sign out' : undefined}
+                        className={cn(
+                            'mt-1 w-full gap-2 text-red-400 hover:text-red-300 hover:bg-red-500/10',
+                            collapsed ? 'justify-center px-0' : 'justify-start'
+                        )}
+                        onClick={handleLogout}
+                    >
+                        <LogOut className="size-4" />
+                        {!collapsed && (session ? `Sign out (${session.username})` : 'Sign out')}
                     </Button>
                 </div>
             </aside>

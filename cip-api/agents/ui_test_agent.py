@@ -87,6 +87,16 @@ class UIJourneys(BaseModel):
     journeys: List[UIJourney]
 
 
+class AppCredential(BaseModel):
+    username: str = Field(description="email or username for login")
+    password: str = Field(description="the password")
+    source: str = Field(description="file and line where you found it")
+
+
+class AppCredentials(BaseModel):
+    credentials: List[AppCredential]
+
+
 def _driver():
     """Headless Chrome; Selenium Manager finds Chrome and downloads the matching chromedriver when needed."""
     from selenium import webdriver
@@ -320,6 +330,93 @@ class UITestAgent:
                                steps, expected, ok, actual, t0, b.shot(cid), "AI journey"))
         return cases
 
+    # ---------------------------------------------------------------- login discovery
+    def _is_login_page(self, b: Browser) -> bool:
+        """True when the page has a visible password input — almost certainly a login / sign-up form."""
+        from selenium.webdriver.common.by import By
+        return bool([e for e in b.d.find_elements(By.CSS_SELECTOR, "input[type=password]") if e.is_displayed()])
+
+    async def _discover_credentials(self, workspace: str, llm) -> list[dict]:
+        """Scan the app's own source for demo / seed / test credentials using the LLM."""
+        import glob as _glob
+
+        SKIP = {"node_modules", ".git", ".venv", "__pycache__", "dist", "build", ".scanners", ".cip-venv"}
+        patterns = ["README*", ".env.example", ".env.sample", "docker-compose*",
+                    "**/seed*", "**/fixture*", "**/demo*", "**/init_db*", "**/populate*", "**/create_user*",
+                    "**/create_admin*", "**/setup*", "**/default*"]
+        hits: list[str] = []
+        for pat in patterns:
+            for p in _glob.glob(os.path.join(workspace, pat), recursive=True):
+                if any(s in p.split(os.sep) for s in SKIP):
+                    continue
+                if os.path.isfile(p) and p not in hits:
+                    hits.append(p)
+        if not hits:
+            return []
+        chunks = []
+        total = 0
+        for p in hits[:15]:
+            try:
+                size = os.path.getsize(p)
+                if size > 50_000:
+                    continue
+                with open(p, errors="replace") as f:
+                    text = f.read(3000)
+                rel = os.path.relpath(p, workspace)
+                chunks.append(f"--- {rel} ---\n{text}")
+                total += len(text)
+            except OSError:
+                continue
+        if not chunks:
+            return []
+        prompt = ("You are a DevOps engineer. The files below belong to a web application. "
+                  "Find any demo, test, seed, or default LOGIN credentials (email/username + password) "
+                  "that could be used to log in to the running app. "
+                  "Return ONLY credentials that are clearly set as initial/demo/seed users — "
+                  "not API keys, tokens, or database connection strings.")
+        result = await ask_structured(llm, AppCredentials, prompt, "\n\n".join(chunks))
+        if result and result.credentials:
+            return [{"username": c.username, "password": c.password, "source": c.source} for c in result.credentials]
+        return []
+
+    def _try_login(self, b: Browser, base: str, creds: list[dict]) -> tuple[bool, str, str]:
+        """Fill the login form with discovered credentials. Returns (ok, detail, landing_url)."""
+        from selenium.webdriver.common.by import By
+
+        for cred in creds[:3]:
+            b.open(base)
+            time.sleep(0.5)
+            try:
+                pwd_els = [e for e in b.d.find_elements(By.CSS_SELECTOR, "input[type=password]") if e.is_displayed()]
+                if not pwd_els:
+                    return False, "no password field visible", b.d.current_url
+                user_els = [e for e in b.d.find_elements(By.CSS_SELECTOR,
+                            "input[type=email], input[type=text]") if e.is_displayed()]
+                if not user_els:
+                    return False, "no username/email field visible", b.d.current_url
+                user_els[0].clear()
+                user_els[0].send_keys(cred["username"])
+                pwd_els[0].clear()
+                pwd_els[0].send_keys(cred["password"])
+                # click submit
+                btns = b.d.find_elements(By.CSS_SELECTOR,
+                       "form button[type=submit], form input[type=submit], form button, button[type=submit]")
+                btns = [x for x in btns if x.is_displayed()]
+                if btns:
+                    btns[0].click()
+                else:
+                    from selenium.webdriver.common.keys import Keys
+                    pwd_els[0].send_keys(Keys.RETURN)
+                time.sleep(2.5)
+                # success = no visible password input anymore (navigated past login)
+                still_login = bool([e for e in b.d.find_elements(By.CSS_SELECTOR, "input[type=password]") if e.is_displayed()])
+                if not still_login:
+                    landing = b.d.current_url
+                    return True, f"logged in as {cred['username']} (from {cred['source']})", landing
+            except Exception as e:  # noqa: BLE001
+                continue
+        return False, "none of the discovered credentials worked", b.d.current_url
+
     async def run(self, state: PipelineState, config: RunnableConfig) -> PipelineState:
         task_id, t0 = state["task_id"], time.time()
         dep, opts = state.get("deploy") or {}, state.get("options") or {}
@@ -343,7 +440,8 @@ class UITestAgent:
             steps = {"ui_tests": step_record("ui_tests", "UI browser tests", "ui tests", status, msg, items=cases,
                                              item_type="tests", started=t0,
                                              summary={"browser": "headless Chrome (Selenium)", "tests": len(cases),
-                                                      "passed": sum(c["status"] == "passed" for c in cases)})}
+                                                      "passed": sum(c["status"] == "passed" for c in cases),
+                                                      **({"login": login_detail} if login_detail else {})})}
             if gate is None:
                 return {**done, "steps": steps}
             return {**done, "gates": {"ui": gate},
@@ -372,9 +470,40 @@ class UITestAgent:
         shots.mkdir(parents=True, exist_ok=True)
         b, cases = Browser(driver, shots), []
         llm = await LLMProvider().get_llm(state.get("provider"))
+        creds, login_detail = None, ""
         try:
             for s in up:
                 await emit(task_id, self.node_name, StreamStatus.START, f"Browser tests of {s['component']} at {s['url']}")
+                # ---- login discovery: check if the app needs authentication ----
+                await asyncio.to_thread(b.open, s["url"])
+                if self._is_login_page(b):
+                    if creds is None:
+                        await emit(task_id, self.node_name, StreamStatus.PROGRESS,
+                                   f"{s['component']}: login page detected – discovering credentials from source code")
+                        creds = await self._discover_credentials(state.get("workspace", state.get("run_dir", "")), llm)
+                    if creds:
+                        ok, detail, landing = await asyncio.to_thread(self._try_login, b, s["url"], creds)
+                        login_detail = detail
+                        t_login = time.time()
+                        cid = f"TC-UI-{len(cases) + 1:03d}"
+                        cases.append(_case(cid, f"{s['component']}: login with discovered credentials", s["component"],
+                                           "The app requires authentication – the agent discovers demo credentials "
+                                           "from the project's source code and logs in before testing.",
+                                           "A login form is detected, credentials are found in seed/demo files, "
+                                           "and login succeeds (the password field disappears).",
+                                           ["open the app URL", "detect login page (visible password input)",
+                                            "scan source code for demo/seed credentials",
+                                            f"fill username '{creds[0]['username']}' and password",
+                                            "click submit and wait for navigation"],
+                                           "navigated past login page", ok, detail, t_login, b.shot(cid), "login"))
+                        if ok:
+                            s["url"] = landing  # test from the post-login page (dashboard)
+                            await emit(task_id, self.node_name, StreamStatus.PROGRESS,
+                                       f"{s['component']}: logged in – testing authenticated pages from {landing}")
+                    else:
+                        login_detail = "no demo credentials found in source code"
+                        await emit(task_id, self.node_name, StreamStatus.PROGRESS,
+                                   f"{s['component']}: login page detected but no credentials found – testing login page only")
                 std, pages = await asyncio.to_thread(self._standard, b, s["url"], s["component"], len(cases))
                 cases += std
                 if llm and pages:

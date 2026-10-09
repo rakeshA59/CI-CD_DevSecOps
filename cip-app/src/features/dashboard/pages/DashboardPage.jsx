@@ -128,6 +128,7 @@ export default function DashboardPage() {
                     <Table>
                         <TableHeader>
                             <TableRow>
+                                <TableHead>Pipeline</TableHead>
                                 <TableHead>Status</TableHead>
                                 <TableHead>App</TableHead>
                                 <TableHead>Application</TableHead>
@@ -149,6 +150,9 @@ export default function DashboardPage() {
                                     className="cursor-pointer"
                                     onClick={() => navigate(`/runs/${r.task_id}`)}
                                 >
+                                    <TableCell className="text-sm font-medium">
+                                        {r.pipeline_name || '–'}
+                                    </TableCell>
                                     <TableCell>
                                         <span
                                             title={
@@ -195,9 +199,7 @@ export default function DashboardPage() {
                                             </a>
                                         </div>
                                         <div className="text-muted-foreground text-xs">
-                                            {r.repo} ·{' '}
-                                            {r.mode === 'guided' ? 'guided flow' : 'quick run'} ·{' '}
-                                            {r.source_type}
+                                            {r.repo} · {r.source_type}
                                         </div>
                                     </TableCell>
                                     <TableCell className="text-xs whitespace-nowrap">
@@ -239,7 +241,7 @@ export default function DashboardPage() {
                             {runs.length === 0 && (
                                 <TableRow>
                                     <TableCell
-                                        colSpan={STAGES.length + 7}
+                                        colSpan={STAGES.length + 8}
                                         className="text-muted-foreground text-center"
                                     >
                                         No runs yet.

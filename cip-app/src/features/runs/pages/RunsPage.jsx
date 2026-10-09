@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { History } from 'lucide-react';
+
+const when = (d) => (d ? format(new Date(d), 'dd MMM, HH:mm:ss') : '–');
 import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/shared/ui/table';
 import StatusBadge from '@/shared/components/StatusBadge';
@@ -29,10 +31,12 @@ export default function RunsPage() {
                 <Table>
                     <TableHeader>
                         <TableRow>
+                            <TableHead>Pipeline</TableHead>
                             <TableHead>Result</TableHead>
                             <TableHead>Application</TableHead>
                             <TableHead>Source</TableHead>
                             <TableHead>Started</TableHead>
+                            <TableHead>End time</TableHead>
                             <TableHead>Duration</TableHead>
                             <TableHead>LLM</TableHead>
                         </TableRow>
@@ -44,6 +48,9 @@ export default function RunsPage() {
                                 className="cursor-pointer"
                                 onClick={() => navigate(`/runs/${r.task_id}`)}
                             >
+                                <TableCell className="font-medium">
+                                    {r.pipeline_name || '–'}
+                                </TableCell>
                                 <TableCell>
                                     <StatusBadge
                                         status={r.active ? 'RUNNING' : r.overall || r.status}
@@ -56,11 +63,7 @@ export default function RunsPage() {
                                     </div>
                                 </TableCell>
                                 <TableCell>
-                                    <StatusBadge status="pending" label={r.source_type} />{' '}
-                                    <StatusBadge
-                                        status="pending"
-                                        label={r.mode === 'guided' ? 'guided flow' : 'quick run'}
-                                    />
+                                    <StatusBadge status="pending" label={r.source_type} />
                                     {r.source_info?.branch && (
                                         <div className="text-muted-foreground text-xs">
                                             {r.source_info.branch} @{' '}
@@ -68,10 +71,15 @@ export default function RunsPage() {
                                         </div>
                                     )}
                                 </TableCell>
-                                <TableCell>
+                                <TableCell className="text-xs whitespace-nowrap">
                                     {r.created_at
                                         ? format(new Date(r.created_at), 'dd MMM yyyy, HH:mm:ss')
                                         : ''}
+                                </TableCell>
+                                <TableCell className="text-xs whitespace-nowrap">
+                                    {r.active || r.status?.startsWith?.('WAITING')
+                                        ? '–'
+                                        : when(r.finished_at)}
                                 </TableCell>
                                 <TableCell>
                                     {r.duration_s ? `${r.duration_s}s` : r.active ? 'running' : ''}
@@ -82,7 +90,7 @@ export default function RunsPage() {
                         {runs.length === 0 && (
                             <TableRow>
                                 <TableCell
-                                    colSpan={6}
+                                    colSpan={8}
                                     className="text-muted-foreground text-center"
                                 >
                                     No runs yet.
