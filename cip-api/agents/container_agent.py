@@ -99,11 +99,18 @@ class ContainerAgent:
         folder = Path(state["workspace"]) / comp["path"]
         source, port = "repository", comp.get("port") or 8080
         if not (folder / "Dockerfile").is_file():
+            is_static_frontend = comp.get("kind") == "web-frontend"
             llm = await LLMProvider().get_llm(state.get("provider"))
-            df = await ask_structured(llm, Dockerfile, "You write production Dockerfiles for CI. The build output already exists "
-                                      "in the folder (it was built by the pipeline).",
-                                      f"Component {name}: {comp['language']} {comp['framework']}, artifacts {pkg['artifacts'][:10]}, "
-                                      f"port {port}.\nFiles:\n{await tools.list_files(comp['path'], 2)}") if llm else None
+            if is_static_frontend:
+                # Static SPAs (React/Vue/Angular + Vite/Webpack) produce only HTML/JS/CSS – always use
+                # nginx to serve them. The LLM often gets this wrong (uses node to serve static files,
+                # which exits immediately), so we use the proven template and skip the LLM for this case.
+                df = None
+            else:
+                df = await ask_structured(llm, Dockerfile, "You write production Dockerfiles for CI. The build output already exists "
+                                          "in the folder (it was built by the pipeline).",
+                                          f"Component {name}: {comp['language']} {comp['framework']}, artifacts {pkg['artifacts'][:10]}, "
+                                          f"port {port}.\nFiles:\n{await tools.list_files(comp['path'], 2)}") if llm else None
             content = df.content if df else TEMPLATES.get(comp["language"], "").format(
                 port=port, app=f"{comp['app_dir']}/" if comp.get("app_dir") else "")
             port, source = (df.port if df else port), ("written by the agent" if df else "DevOps template")

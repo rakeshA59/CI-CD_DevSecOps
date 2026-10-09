@@ -429,6 +429,7 @@ class UITestAgent:
             if ui:
                 up.append({**s, "url": ui})
         done = {"step_index": state["step_index"] + 1}
+        login_detail = ""                                # initialise before finish() captures it
 
         async def finish(status: str, msg: str, cases: list, gate: dict | None) -> dict:
             """gate None = the UI tests could not run on this machine (tool missing): skipped, no gate, no FAIL."""
@@ -470,7 +471,7 @@ class UITestAgent:
         shots.mkdir(parents=True, exist_ok=True)
         b, cases = Browser(driver, shots), []
         llm = await LLMProvider().get_llm(state.get("provider"))
-        creds, login_detail = None, ""
+        creds = None
         try:
             for s in up:
                 await emit(task_id, self.node_name, StreamStatus.START, f"Browser tests of {s['component']} at {s['url']}")

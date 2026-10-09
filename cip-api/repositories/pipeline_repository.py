@@ -37,9 +37,9 @@ class PipelineRepository:
 
     async def list_runs(self, limit: int = 50, dashboard: bool = False) -> list[dict]:
         db = await get_mongo_db()
-        projection = {"_id": 0, "task_id": 1, "source": 1, "source_type": 1, "repo": 1, "app_name": 1, "status": 1, "overall": 1,
-                      "created_at": 1, "finished_at": 1, "duration_s": 1, "provider": 1, "source_info.branch": 1,
-                      "source_info.commit": 1, "mode": 1}
+        projection = {"_id": 0, "task_id": 1, "source": 1, "source_type": 1, "repo": 1, "app_name": 1, "pipeline_name": 1,
+                      "status": 1, "overall": 1, "created_at": 1, "finished_at": 1, "duration_s": 1, "provider": 1,
+                      "source_info.branch": 1, "source_info.commit": 1, "mode": 1}
         if dashboard:
             projection.update({"stage_summary": 1, "tests_summary": 1, "findings_by_severity": 1, "pending.type": 1,
                                "report.overall": 1, "report.root_cause": 1})
