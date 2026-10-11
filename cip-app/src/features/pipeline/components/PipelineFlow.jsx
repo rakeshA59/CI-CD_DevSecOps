@@ -25,15 +25,18 @@ const SCAN_GROUPS = [
     ['platform', 'Platform alerts'],
 ];
 
-/** Scanners of this run: from the finished run's steps, else announced live by the security agent. */
+/** Scanners of this run: from the finished run's steps, else announced live by the security agent.
+ *  Scanners that could not run (skipped / error with no findings) are hidden from the pipeline view. */
 function scanList(run, scanners) {
     const done = Object.values(run?.steps || {}).filter((s) => s.id?.startsWith('scan.'));
     if (done.length)
-        return done.map((s) => ({
-            name: s.id.slice(5),
-            label: s.name,
-            category: s.summary?.category,
-        }));
+        return done
+            .filter((s) => s.status !== 'skipped' && !(s.status === 'error' && !s.items?.length))
+            .map((s) => ({
+                name: s.id.slice(5),
+                label: s.name,
+                category: s.summary?.category,
+            }));
     return scanners.length ? scanners : DEFAULT_SCANS;
 }
 
@@ -157,9 +160,9 @@ export function buildStages(
             ],
         });
     stages.push({
-        title: 'Report',
+        title: 'Grade Out',
         agent: 'Release Manager',
-        lanes: [{ steps: [['report', 'Report + PDF']] }],
+        lanes: [{ steps: [['report', 'Grade Out']] }],
     });
     return stages;
 }
@@ -284,7 +287,7 @@ export default function PipelineFlow() {
                                                         </span>
                                                     )}
                                                 </span>
-                                                <StepInfo id={id} label={label} />
+                                                {id !== 'report' && <StepInfo id={id} label={label} />}
                                             </button>
                                         );
                                     })}

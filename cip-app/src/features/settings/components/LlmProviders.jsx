@@ -97,26 +97,24 @@ export default function LlmProviders() {
                     <div className="min-w-48">
                         <div className="font-semibold">{current.label}</div>
                         <div className="text-muted-foreground text-xs">
-                            {current.model || (current.id === 'none' ? 'rules only' : '')}
+                            {current.model || ''}
                             {current.source && ` · keys from ${current.source}`}
                         </div>
                     </div>
                     <StatusBadge status="running" label="in use" />
                     {testResult(current.id)}
-                    {current.id !== 'none' && (
-                        <Button
-                            className="ml-auto"
-                            variant="outline"
-                            size="sm"
-                            disabled={busy === `test:${current.id}`}
-                            onClick={() => test(current.id)}
-                        >
-                            {busy === `test:${current.id}` && (
-                                <Loader2 className="size-4 animate-spin" />
-                            )}
-                            Test
-                        </Button>
-                    )}
+                    <Button
+                        className="ml-auto"
+                        variant="outline"
+                        size="sm"
+                        disabled={busy === `test:${current.id}`}
+                        onClick={() => test(current.id)}
+                    >
+                        {busy === `test:${current.id}` && (
+                            <Loader2 className="size-4 animate-spin" />
+                        )}
+                        Test
+                    </Button>
                 </div>
             )}
 
@@ -153,13 +151,13 @@ export default function LlmProviders() {
                                 }`}
                             >
                                 {p.label}
-                                {p.configured && p.id !== 'none' && ' ✓'}
+                                {p.configured && ' ✓'}
                             </button>
                         ))}
                     </div>
                     {chosen && (
                         <div className="space-y-3">
-                            {chosen.configured && chosen.id !== 'none' && (
+                            {chosen.configured && (
                                 <p className="text-muted-foreground text-xs">
                                     Already configured ({chosen.model}
                                     {chosen.source && `, keys from ${chosen.source}`}) – change the
@@ -186,7 +184,7 @@ export default function LlmProviders() {
                                     {busy === 'save' && <Loader2 className="size-4 animate-spin" />}
                                     {chosen.fields?.length ? 'Save and use' : 'Use'}
                                 </Button>
-                                {chosen.configured && chosen.id !== 'none' && (
+                                {chosen.configured && (
                                     <Button
                                         variant="outline"
                                         disabled={busy === `test:${chosen.id}`}

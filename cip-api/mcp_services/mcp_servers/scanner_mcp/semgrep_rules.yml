@@ -95,3 +95,378 @@ rules:
     message: Server binds to 0.0.0.0 – expected in containers, verify network exposure.
     metadata: {cwe: ["CWE-1327"], confidence: LOW}
     pattern: uvicorn.run(..., host="0.0.0.0", ...)
+
+  # ------------------------------------------------------------------ JavaScript / TypeScript
+
+  - id: cip-js-hardcoded-password
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Hard-coded password or secret in source code. Store credentials in environment variables or a secret manager.
+    metadata: {cwe: ["CWE-798: Use of Hard-coded Credentials"], confidence: MEDIUM, impact: HIGH}
+    pattern-either:
+      - pattern: |
+          $X = "...";
+      - pattern: |
+          $X = '...';
+    metavariable-regex:
+      metavariable: $X
+      regex: (?i)(password|passwd|pwd|secret|api_?key|apikey|auth_?token|access_?token|private_?key)
+
+  - id: cip-js-hardcoded-credential-object
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Hard-coded credential in object literal. Use environment variables or a secret manager instead.
+    metadata: {cwe: ["CWE-798: Use of Hard-coded Credentials"], confidence: HIGH, impact: HIGH}
+    pattern-either:
+      - pattern: |
+          {... , password: "...", ...}
+      - pattern: |
+          {... , password: '...', ...}
+      - pattern: |
+          {... , secret: "...", ...}
+      - pattern: |
+          {... , apiKey: "...", ...}
+      - pattern: |
+          {... , api_key: "...", ...}
+      - pattern: |
+          {... , token: "...", ...}
+
+  - id: cip-js-math-random-security
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Math.random() is not cryptographically secure. Use crypto.randomUUID(), crypto.getRandomValues() or crypto.randomBytes() for tokens, IDs or security-sensitive values.
+    metadata: {cwe: ["CWE-338: Use of Cryptographically Weak PRNG"], confidence: MEDIUM, impact: HIGH}
+    pattern: Math.random(...)
+
+  - id: cip-js-localstorage-sensitive
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: Sensitive data stored in localStorage/sessionStorage is accessible to XSS attacks. Use httpOnly cookies or server-side sessions for tokens, PII and credentials.
+    metadata: {cwe: ["CWE-922: Insecure Storage of Sensitive Information"], confidence: MEDIUM}
+    pattern-either:
+      - pattern: localStorage.setItem("$KEY", ...)
+      - pattern: sessionStorage.setItem("$KEY", ...)
+    metavariable-regex:
+      metavariable: $KEY
+      regex: (?i)(token|auth|session|user|password|ssn|email|phone|dob|address|credit|account|patient|member|claim)
+
+  - id: cip-js-eval
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: eval() executes arbitrary code and is a common injection vector. Use safer alternatives.
+    metadata: {cwe: ["CWE-95: Eval Injection"], confidence: HIGH}
+    pattern: eval(...)
+
+  - id: cip-js-innerhtml
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: Setting innerHTML with dynamic data can lead to XSS. Use textContent or a sanitisation library.
+    metadata: {cwe: ["CWE-79: Cross-site Scripting"], confidence: MEDIUM}
+    pattern: $EL.innerHTML = $VAL
+
+  - id: cip-js-dangerously-set-html
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: dangerouslySetInnerHTML bypasses React's XSS protections. Sanitise the HTML first.
+    metadata: {cwe: ["CWE-79: Cross-site Scripting"], confidence: HIGH}
+    pattern: dangerouslySetInnerHTML={...}
+
+  - id: cip-js-cors-wildcard
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: CORS allows any origin – restrict to trusted domains.
+    metadata: {cwe: ["CWE-942: Permissive Cross-domain Policy"], confidence: MEDIUM}
+    pattern-either:
+      - pattern: |
+          cors({... , origin: "*", ...})
+      - pattern: |
+          $RES.setHeader("Access-Control-Allow-Origin", "*")
+      - pattern: |
+          $RES.header("Access-Control-Allow-Origin", "*")
+
+  - id: cip-js-sql-injection
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: SQL query built with string interpolation or concatenation. Use parameterised queries / prepared statements.
+    metadata: {cwe: ["CWE-89: SQL Injection"], confidence: MEDIUM}
+    pattern-either:
+      - pattern: $DB.query(`...${...}...`)
+      - pattern: $DB.query("..." + ...)
+      - pattern: $DB.execute(`...${...}...`)
+      - pattern: $DB.raw(`...${...}...`)
+
+  - id: cip-js-jwt-hardcoded
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: JWT signed with a hard-coded secret. Load the signing key from environment variables or a secret manager.
+    metadata: {cwe: ["CWE-798: Use of Hard-coded Credentials"], confidence: HIGH, impact: HIGH}
+    pattern-either:
+      - pattern: jwt.sign($P, "...", ...)
+      - pattern: jwt.verify($T, "...", ...)
+
+  - id: cip-js-no-auth-middleware
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: Express route defined without authentication middleware. Ensure sensitive endpoints are protected.
+    metadata: {cwe: ["CWE-306: Missing Authentication"], confidence: LOW}
+    patterns:
+      - pattern: $APP.$METHOD($PATH, async ($REQ, $RES) => { ... })
+      - metavariable-regex:
+          metavariable: $METHOD
+          regex: (post|put|patch|delete)
+      - metavariable-regex:
+          metavariable: $PATH
+          regex: .*(admin|user|account|payment|patient|member|claim).*
+
+  - id: cip-js-debug-console
+    languages: [javascript, typescript]
+    severity: INFO
+    message: console.log left in code – remove or replace with a proper logger before production.
+    metadata: {cwe: ["CWE-489: Active Debug Code"], confidence: LOW}
+    pattern: console.log(...)
+
+  # ------------------------------------------------------------------ Java
+
+  - id: cip-java-sql-injection
+    languages: [java]
+    severity: ERROR
+    message: SQL built with string concatenation passed to executeQuery/execute. Use PreparedStatement with parameterised queries.
+    metadata: {cwe: ["CWE-89: SQL Injection"], confidence: MEDIUM}
+    pattern-either:
+      - pattern: $STMT.executeQuery("..." + ...)
+      - pattern: $STMT.execute("..." + ...)
+
+  - id: cip-java-hardcoded-password
+    languages: [java]
+    severity: ERROR
+    message: Hard-coded password in source code. Load from environment or a secret manager.
+    metadata: {cwe: ["CWE-798: Use of Hard-coded Credentials"], confidence: HIGH, impact: HIGH}
+    pattern-either:
+      - pattern: String $X = "...";
+    metavariable-regex:
+      metavariable: $X
+      regex: (?i)(password|passwd|secret|apiKey|apiSecret)
+
+  - id: cip-java-deserialization
+    languages: [java]
+    severity: ERROR
+    message: Deserialising untrusted data with ObjectInputStream can lead to remote code execution. Use a safe format (JSON) or a validation filter.
+    metadata: {cwe: ["CWE-502: Deserialization of Untrusted Data"], confidence: MEDIUM}
+    pattern: new ObjectInputStream(...)
+
+  - id: cip-java-weak-hash
+    languages: [java]
+    severity: WARNING
+    message: MD5/SHA-1 are broken for security purposes. Use SHA-256+ for integrity, bcrypt/argon2 for passwords.
+    metadata: {cwe: ["CWE-327: Use of a Broken or Risky Cryptographic Algorithm"], confidence: HIGH}
+    pattern-either:
+      - pattern: MessageDigest.getInstance("MD5")
+      - pattern: MessageDigest.getInstance("SHA-1")
+      - pattern: MessageDigest.getInstance("SHA1")
+
+  # ------------------------------------------------------------------ Go
+
+  - id: cip-go-sql-injection
+    languages: [go]
+    severity: ERROR
+    message: SQL query built with fmt.Sprintf or string concatenation. Use parameterised queries with $1 / ? placeholders.
+    metadata: {cwe: ["CWE-89: SQL Injection"], confidence: MEDIUM}
+    pattern-either:
+      - pattern: $DB.Query(fmt.Sprintf("...", ...), ...)
+      - pattern: $DB.Exec(fmt.Sprintf("...", ...), ...)
+      - pattern: $DB.QueryRow(fmt.Sprintf("...", ...), ...)
+      - pattern: $DB.Query("..." + ..., ...)
+      - pattern: $DB.Exec("..." + ..., ...)
+
+  - id: cip-go-hardcoded-credential
+    languages: [go]
+    severity: ERROR
+    message: Hard-coded credential in source code. Load from environment variables or a secret manager.
+    metadata: {cwe: ["CWE-798: Use of Hard-coded Credentials"], confidence: MEDIUM, impact: HIGH}
+    pattern-either:
+      - pattern: |
+          $X := "..."
+      - pattern: |
+          $X = "..."
+    metavariable-regex:
+      metavariable: $X
+      regex: (?i)(password|passwd|secret|apiKey|token|privateKey)
+
+  - id: cip-go-tls-skip-verify
+    languages: [go]
+    severity: ERROR
+    message: TLS certificate verification is disabled. This allows man-in-the-middle attacks.
+    metadata: {cwe: ["CWE-295: Improper Certificate Validation"], confidence: HIGH}
+    pattern: |
+      &tls.Config{..., InsecureSkipVerify: true, ...}
+
+  - id: cip-go-weak-random
+    languages: [go]
+    severity: WARNING
+    message: math/rand is not cryptographically secure. Use crypto/rand for tokens, keys and security-sensitive values.
+    metadata: {cwe: ["CWE-338: Use of Cryptographically Weak PRNG"], confidence: MEDIUM}
+    pattern-either:
+      - pattern: rand.Intn(...)
+      - pattern: rand.Int(...)
+      - pattern: rand.Float64(...)
+
+  - id: cip-go-exec-command
+    languages: [go]
+    severity: WARNING
+    message: Command execution with variable input. Validate and sanitise all arguments to prevent command injection.
+    metadata: {cwe: ["CWE-78: OS Command Injection"], confidence: MEDIUM}
+    pattern: exec.Command($CMD, ...)
+
+  # ------------------------------------------------------------------ C#
+
+  - id: cip-csharp-sql-injection
+    languages: [csharp]
+    severity: ERROR
+    message: SQL built with string concatenation or interpolation. Use parameterised queries with SqlParameter / Dapper parameters.
+    metadata: {cwe: ["CWE-89: SQL Injection"], confidence: MEDIUM}
+    pattern-either:
+      - pattern: $CMD.CommandText = $"...{...}..."
+      - pattern: $CMD.CommandText = "..." + ...
+      - pattern: new SqlCommand($"...{...}...", ...)
+      - pattern: new SqlCommand("..." + ..., ...)
+
+  - id: cip-csharp-hardcoded-credential
+    languages: [csharp]
+    severity: ERROR
+    message: Hard-coded credential in source code. Use IConfiguration, environment variables or a secret manager.
+    metadata: {cwe: ["CWE-798: Use of Hard-coded Credentials"], confidence: MEDIUM, impact: HIGH}
+    pattern-either:
+      - pattern: string $X = "...";
+      - pattern: var $X = "...";
+    metavariable-regex:
+      metavariable: $X
+      regex: (?i)(password|passwd|secret|apiKey|connectionString|token)
+
+  - id: cip-csharp-weak-hash
+    languages: [csharp]
+    severity: WARNING
+    message: MD5/SHA1 are broken for security. Use SHA256+ for integrity, bcrypt/PBKDF2 for passwords.
+    metadata: {cwe: ["CWE-327: Use of a Broken or Risky Cryptographic Algorithm"], confidence: HIGH}
+    pattern-either:
+      - pattern: MD5.Create(...)
+      - pattern: SHA1.Create(...)
+      - pattern: new MD5CryptoServiceProvider(...)
+      - pattern: new SHA1CryptoServiceProvider(...)
+
+  - id: cip-csharp-deserialization
+    languages: [csharp]
+    severity: ERROR
+    message: BinaryFormatter deserialization is unsafe and allows remote code execution. Use System.Text.Json or a safe serializer.
+    metadata: {cwe: ["CWE-502: Deserialization of Untrusted Data"], confidence: HIGH}
+    pattern-either:
+      - pattern: new BinaryFormatter(...).Deserialize(...)
+      - pattern: $BF.Deserialize(...)
+
+  - id: cip-csharp-cors-wildcard
+    languages: [csharp]
+    severity: WARNING
+    message: CORS allows any origin. Restrict to trusted domains.
+    metadata: {cwe: ["CWE-942: Permissive Cross-domain Policy"], confidence: MEDIUM}
+    pattern-either:
+      - pattern: $B.AllowAnyOrigin(...)
+      - pattern: $B.WithOrigins("*")
+
+  - id: cip-csharp-xss-raw-html
+    languages: [csharp]
+    severity: WARNING
+    message: Rendering raw HTML without encoding can lead to XSS. Use HtmlEncoder or Razor's default encoding.
+    metadata: {cwe: ["CWE-79: Cross-site Scripting"], confidence: MEDIUM}
+    pattern: Html.Raw(...)
+
+  # ------------------------------------------------------------------ Ruby
+
+  - id: cip-ruby-sql-injection
+    languages: [ruby]
+    severity: ERROR
+    message: SQL built with string interpolation. Use parameterised queries or ActiveRecord's where with placeholders.
+    metadata: {cwe: ["CWE-89: SQL Injection"], confidence: MEDIUM}
+    pattern-either:
+      - pattern: $MODEL.where("...#{...}...")
+      - pattern: $MODEL.find_by_sql("...#{...}...")
+      - pattern: ActiveRecord::Base.connection.execute("...#{...}...")
+
+  - id: cip-ruby-hardcoded-credential
+    languages: [ruby]
+    severity: ERROR
+    message: Hard-coded credential in source code. Use Rails credentials, environment variables or a secret manager.
+    metadata: {cwe: ["CWE-798: Use of Hard-coded Credentials"], confidence: MEDIUM, impact: HIGH}
+    pattern-either:
+      - pattern: |
+          $X = "..."
+    metavariable-regex:
+      metavariable: $X
+      regex: (?i)(password|passwd|secret|api_key|token|private_key)
+
+  - id: cip-ruby-eval
+    languages: [ruby]
+    severity: ERROR
+    message: eval() executes arbitrary code. Avoid it or use a safe alternative.
+    metadata: {cwe: ["CWE-95: Eval Injection"], confidence: HIGH}
+    pattern: eval(...)
+
+  - id: cip-ruby-mass-assignment
+    languages: [ruby]
+    severity: WARNING
+    message: permit! allows all parameters, enabling mass assignment attacks. List allowed parameters explicitly.
+    metadata: {cwe: ["CWE-915: Mass Assignment"], confidence: HIGH}
+    pattern: params.permit!
+
+  - id: cip-ruby-open-redirect
+    languages: [ruby]
+    severity: WARNING
+    message: Redirecting to user-controlled input can be an open redirect. Validate the URL or use only path-based redirects.
+    metadata: {cwe: ["CWE-601: Open Redirect"], confidence: MEDIUM}
+    pattern: redirect_to params[...]
+
+  # ------------------------------------------------------------------ PHP
+
+  - id: cip-php-sql-injection
+    languages: [php]
+    severity: ERROR
+    message: SQL built with string interpolation or concatenation. Use prepared statements with PDO or parameterised queries.
+    metadata: {cwe: ["CWE-89: SQL Injection"], confidence: MEDIUM}
+    pattern-either:
+      - pattern: $DB->query("..." . ...)
+      - pattern: $DB->query("...$......")
+      - pattern: mysqli_query($CONN, "..." . ...)
+
+  - id: cip-php-hardcoded-credential
+    languages: [php]
+    severity: ERROR
+    message: Hard-coded credential in source code. Use environment variables or a .env file (not committed).
+    metadata: {cwe: ["CWE-798: Use of Hard-coded Credentials"], confidence: MEDIUM, impact: HIGH}
+    pattern-either:
+      - pattern: |
+          $$$X = "...";
+    metavariable-regex:
+      metavariable: $$$X
+      regex: (?i)(password|passwd|secret|api_key|token|db_pass)
+
+  - id: cip-php-eval
+    languages: [php]
+    severity: ERROR
+    message: eval() executes arbitrary code and is a common injection vector. Use safer alternatives.
+    metadata: {cwe: ["CWE-95: Eval Injection"], confidence: HIGH}
+    pattern: eval(...)
+
+  - id: cip-php-xss-echo
+    languages: [php]
+    severity: WARNING
+    message: Echoing user input without escaping can lead to XSS. Use htmlspecialchars() or a template engine with auto-escaping.
+    metadata: {cwe: ["CWE-79: Cross-site Scripting"], confidence: MEDIUM}
+    pattern-either:
+      - pattern: echo $_GET[...];
+      - pattern: echo $_POST[...];
+      - pattern: echo $_REQUEST[...];
+
+  - id: cip-php-deserialization
+    languages: [php]
+    severity: ERROR
+    message: unserialize() on untrusted data can lead to remote code execution. Use json_decode() instead.
+    metadata: {cwe: ["CWE-502: Deserialization of Untrusted Data"], confidence: HIGH}
+    pattern: unserialize(...)

@@ -1,8 +1,7 @@
 """
 Application settings.
 
-Everything comes from environment variables (.env), the same way sdlc-api reads its configuration
-(lower-case keys such as mongo_db_url, openai_api_key; the upper-case form is accepted too).
+Everything comes from environment variables (.env); the upper-case form of each key is accepted too.
 """
 
 import os
@@ -23,9 +22,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 ENVIRONMENT = env("environment", "development")          # development | production (production hides /docs)
 RUNS_DIR = Path(env("cip_runs_dir", BASE_DIR / "runs")).resolve()
 STREAM_DB_PATH = Path(env("cip_stream_db", BASE_DIR / "stream_events.db")).resolve()
-
-MONGO_DB_URL = env("mongo_db_url", "mongodb://localhost:27017")
-MONGO_DB_NAME = env("mongo_db_name", "cip")
 
 # Default LLM provider when the UI has not saved one: azure_openai | openai | anthropic | gemini | none
 DEFAULT_LLM_PROVIDER = env("llm_provider", "azure_openai")

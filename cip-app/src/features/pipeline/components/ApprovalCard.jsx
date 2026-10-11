@@ -2,7 +2,13 @@ import { useState } from 'react';
 import toast from 'react-hot-toast';
 import { Check, ShieldQuestion, X } from 'lucide-react';
 import { Button } from '@/shared/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/shared/ui/card';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+} from '@/shared/ui/dialog';
 import { Input } from '@/shared/ui/input';
 import StatusBadge from '@/shared/components/StatusBadge';
 import usePipelineStore from '../store/usePipelineStore';
@@ -62,8 +68,11 @@ export default function ApprovalCard() {
     const [comment, setComment] = useState('');
     const [sending, setSending] = useState(false);
     const type = run?.pending?.type;
-    if (run?.status !== 'WAITING_APPROVAL' || !['approval', 'security_review'].includes(type))
-        return null;
+
+    const isOpen =
+        run?.status === 'WAITING_APPROVAL' && ['approval', 'security_review'].includes(type);
+
+    if (!isOpen) return null;
     const security = type === 'security_review';
     const sm = run.pending.summary || {};
 
@@ -88,77 +97,88 @@ export default function ApprovalCard() {
     };
 
     return (
-        <Card className="gap-3 border-amber-500/50 py-4">
-            <CardHeader className="px-4">
-                <CardTitle className="flex items-center gap-2">
-                    <ShieldQuestion className="size-5 text-amber-500" />
-                    {security
-                        ? 'HITL – review the security reports'
-                        : `Approval needed before ${String(run.pending.target).toUpperCase()}`}
-                </CardTitle>
-                <CardDescription>
-                    {security
-                        ? 'The scans are done. Review the findings (click a scanner in the pipeline for its report), then approve to continue or reject to stop the pipeline.'
-                        : 'Review the stage reports below, then approve or reject the deployment.'}
-                </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3 px-4 text-sm">
-                {security && <SecuritySummary sm={sm} />}
-                <div className="flex flex-wrap gap-2">
-                    {Object.entries(sm.gates || {}).map(([k, ok]) => (
-                        <StatusBadge
-                            key={k}
-                            status={ok ? 'passed' : 'failed'}
-                            label={`${k}: ${ok ? 'PASS' : 'FAIL'}`}
-                        />
-                    ))}
-                    {Object.entries(sm.findings || {}).map(([k, n]) => (
-                        <StatusBadge
-                            key={k}
-                            status={n ? 'warning' : 'passed'}
-                            label={`${n} ${k.toLowerCase()}`}
-                        />
-                    ))}
-                </div>
-                {sm.failed_steps?.length > 0 && (
-                    <div className="text-red-500">Failed steps: {sm.failed_steps.join(', ')}</div>
-                )}
-                {Object.keys(sm.released || {}).length > 0 && (
-                    <div className="text-muted-foreground text-xs">
-                        Released:{' '}
-                        {Object.entries(sm.released)
-                            .map(([k, v]) => `${k} → ${v}`)
-                            .join(' · ')}
+        <Dialog open={isOpen}>
+            <DialogContent
+                showCloseButton={false}
+                className="max-h-[85vh] overflow-y-auto sm:max-w-3xl"
+            >
+                <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                        <ShieldQuestion className="size-5 text-amber-500" />
+                        {security
+                            ? 'HITL – review the security reports'
+                            : `Approval needed before ${String(run.pending.target).toUpperCase()}`}
+                    </DialogTitle>
+                    <DialogDescription>
+                        {security
+                            ? 'The scans are done. Review the findings (click a scanner in the pipeline for its report), then approve to continue or reject to stop the pipeline.'
+                            : 'Review the stage reports below, then approve or reject the deployment.'}
+                    </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-3 text-sm">
+                    {security && <SecuritySummary sm={sm} />}
+                    <div className="flex flex-wrap gap-2">
+                        {Object.entries(sm.gates || {}).map(([k, ok]) => (
+                            <StatusBadge
+                                key={k}
+                                status={ok ? 'passed' : 'failed'}
+                                label={`${k}: ${ok ? 'PASS' : 'FAIL'}`}
+                            />
+                        ))}
+                        {Object.entries(sm.findings || {}).map(([k, n]) => (
+                            <StatusBadge
+                                key={k}
+                                status={n ? 'warning' : 'passed'}
+                                label={`${n} ${k.toLowerCase()}`}
+                            />
+                        ))}
                     </div>
-                )}
-                <div className="grid gap-2 md:grid-cols-[200px_1fr]">
-                    <Input
-                        placeholder="Your name"
-                        value={by}
-                        onChange={(e) => setBy(e.target.value)}
-                    />
-                    <Input
-                        placeholder="Comment (optional)"
-                        value={comment}
-                        onChange={(e) => setComment(e.target.value)}
-                    />
+                    {sm.failed_steps?.length > 0 && (
+                        <div className="text-red-500">
+                            Failed steps: {sm.failed_steps.join(', ')}
+                        </div>
+                    )}
+                    {Object.keys(sm.released || {}).length > 0 && (
+                        <div className="text-muted-foreground text-xs">
+                            Released:{' '}
+                            {Object.entries(sm.released)
+                                .map(([k, v]) => `${k} → ${v}`)
+                                .join(' · ')}
+                        </div>
+                    )}
+                    <div className="grid gap-2 md:grid-cols-[200px_1fr]">
+                        <Input
+                            placeholder="Your name"
+                            value={by}
+                            onChange={(e) => setBy(e.target.value)}
+                        />
+                        <Input
+                            placeholder="Comment (optional)"
+                            value={comment}
+                            onChange={(e) => setComment(e.target.value)}
+                        />
+                    </div>
+                    <div className="flex gap-2">
+                        <Button
+                            onClick={() => decide('approve')}
+                            disabled={sending}
+                            className="gap-2"
+                        >
+                            <Check className="size-4" />{' '}
+                            {security ? 'Approve – continue the pipeline' : 'Approve UAT deploy'}
+                        </Button>
+                        <Button
+                            variant="outline"
+                            onClick={() => decide('reject')}
+                            disabled={sending}
+                            className="gap-2"
+                        >
+                            <X className="size-4" />{' '}
+                            {security ? 'Reject – stop the pipeline' : 'Reject'}
+                        </Button>
+                    </div>
                 </div>
-                <div className="flex gap-2">
-                    <Button onClick={() => decide('approve')} disabled={sending} className="gap-2">
-                        <Check className="size-4" />{' '}
-                        {security ? 'Approve – continue the pipeline' : 'Approve UAT deploy'}
-                    </Button>
-                    <Button
-                        variant="outline"
-                        onClick={() => decide('reject')}
-                        disabled={sending}
-                        className="gap-2"
-                    >
-                        <X className="size-4" />{' '}
-                        {security ? 'Reject – stop the pipeline' : 'Reject'}
-                    </Button>
-                </div>
-            </CardContent>
-        </Card>
+            </DialogContent>
+        </Dialog>
     );
 }

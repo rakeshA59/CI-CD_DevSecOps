@@ -1,4 +1,4 @@
-# CIP API – agentic CI/CD (FastAPI + LangGraph + LangChain + MCP + MongoDB)
+# CIP API – agentic CI/CD (FastAPI + LangGraph + LangChain + MCP)
 fastapi>=0.115
 uvicorn[standard]>=0.30
 python-dotenv>=1.0
@@ -9,8 +9,6 @@ langchain-openai>=0.3,<0.4
 langchain-anthropic>=0.3,<0.4
 langchain-google-genai>=2.0,<3.0
 mcp>=1.10,<2.0                # 1.x API (FastMCP + SSE client)
-pymongo>=4.10
-mongomock>=4.1               # only for mongo_db_url=memory://
 aiosqlite>=0.20
 httpx>=0.27
 reportlab>=4.0

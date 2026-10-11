@@ -36,7 +36,6 @@ PROVIDERS = {
     "gemini": {"label": "Google Gemini", "env": ["google_api_key"], "model_env": "gemini_model",
                "default_model": "gemini-2.5-flash-lite",
                "fields": [("gemini_model", "Model (e.g. gemini-2.5-flash)", False), ("google_api_key", "API key", True)]},
-    "none": {"label": "No LLM (rules only)", "env": []},
 }
 
 

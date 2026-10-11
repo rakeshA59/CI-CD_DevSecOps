@@ -89,11 +89,24 @@ class PipelineService:
     def __init__(self) -> None:
         self.repository = PipelineRepository()
 
+    async def _unique_app_name(self, name: str, source: str) -> str:
+        """If another run from a different source already used this app_name, append a suffix like (2)."""
+        runs = await self.repository.list_runs(limit=500)
+        taken = {r["app_name"] for r in runs if r.get("app_name") and r.get("source") != source}
+        if name not in taken:
+            return name
+        # The same source re-running keeps the same name; only different sources collide.
+        for i in range(2, 100):
+            candidate = f"{name} ({i})"
+            if candidate not in taken:
+                return candidate
+        return f"{name} ({uuid.uuid4().hex[:4]})"
+
     async def start(self, source: str, branch: str | None, provider: str | None, options: dict, mode: str = "guided", pipeline_name: str | None = None) -> dict:
         """Create the run document and launch the graph in the background."""
         provider = provider or await self.repository.get_setting("llm_provider", DEFAULT_LLM_PROVIDER)
         repo = _repo_name(source)
-        app_name = clean_app_name(repo)
+        app_name = await self._unique_app_name(clean_app_name(repo), source)
         task_id = f"{slug(app_name)}-{dt.datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:4]}"
         run_dir = RUNS_DIR / task_id
         run_dir.mkdir(parents=True, exist_ok=True)

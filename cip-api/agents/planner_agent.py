@@ -139,6 +139,35 @@ def rule_plan(ws: Path, repo: str = "") -> list[dict]:
                               test_command="go test -json -coverprofile=.cip/cover.out ./... > .cip/go-test.json",
                               test_reports=[".cip/go-test.json"], deployable="package main" in "".join(_read(x) for x in d.glob("*.go")),
                               port=8080, has_dockerfile=df))
+        elif f & {x for x in files if x.endswith((".csproj", ".fsproj"))} or (f & {x for x in files if x.endswith(".sln")} and any(Path(dirpath).rglob("*.csproj"))):
+            csproj = next((x for x in files if x.endswith(".csproj")), next((x for x in files if x.endswith(".fsproj")), ""))
+            proj_xml = _read(d / csproj) if csproj else ""
+            aspnet = "Microsoft.AspNetCore" in proj_xml or "Sdk=\"Microsoft.NET.Sdk.Web\"" in proj_xml
+            comps.append(dict(name=name, path=rel, language="C#", framework="ASP.NET" if aspnet else ".NET",
+                              kind="api" if aspnet else "library",
+                              build_commands=["dotnet restore", "dotnet build --no-restore"],
+                              test_command="dotnet test --no-build --logger trx --results-directory .cip",
+                              test_reports=[".cip/*.trx"], package_command="dotnet publish -c Release -o .cip/publish",
+                              artifacts=[".cip/publish/**"], deployable=aspnet, port=5000, has_dockerfile=df))
+        elif "Gemfile" in f:
+            rails = "rails" in (_read(d / "Gemfile")).lower()
+            comps.append(dict(name=name, path=rel, language="Ruby", framework="Rails" if rails else "Ruby",
+                              kind="api" if rails else "library",
+                              build_commands=["bundle install"],
+                              test_command="bundle exec rspec --format documentation --format json --out .cip/rspec.json" if (d / "spec").is_dir()
+                                           else "bundle exec rake test" if "Rakefile" in f else "",
+                              test_reports=[".cip/rspec.json"], deployable=rails, port=3000, has_dockerfile=df))
+        elif "composer.json" in f:
+            comp_json = json.loads(_read(d / "composer.json") or "{}")
+            php_deps = {**comp_json.get("require", {}), **comp_json.get("require-dev", {})}
+            laravel = "laravel/framework" in php_deps
+            symfony = any(k.startswith("symfony/") for k in php_deps)
+            fw = "Laravel" if laravel else "Symfony" if symfony else "PHP"
+            comps.append(dict(name=name, path=rel, language="PHP", framework=fw,
+                              kind="api" if (laravel or symfony) else "library",
+                              build_commands=["composer install --no-interaction"],
+                              test_command="./vendor/bin/phpunit --log-junit .cip/junit.xml" if php_deps.get("phpunit/phpunit") else "",
+                              test_reports=[".cip/junit.xml"], deployable=laravel or symfony, port=8000, has_dockerfile=df))
         elif df:
             comps.append(dict(name=name, path=rel, language="unknown", framework="Dockerfile", kind="service",
                               build_commands=[], deployable=True, port=8080, has_dockerfile=True))

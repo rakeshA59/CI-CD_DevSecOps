@@ -22,7 +22,6 @@ from repositories.pipeline_repository import PipelineRepository
 from routers import llm_router, pipeline_router, settings_router
 from routers.settings_router import load_saved_env
 from services.stream_event_writer import stream_writer
-from utils.mongo_connection import get_mongo_client
 
 if sys.platform == "win32":                         # stable loop for subprocesses on Windows (as in sdlc-api)
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
@@ -57,11 +56,10 @@ async def lifespan(app: FastAPI):
     except Exception:
         logging.exception("Failed to compile the pipeline graph")
     try:
-        await get_mongo_client()
-        logging.info("MongoDB client ready")
+        logging.info("JSON file storage ready (data/runs.json + data/settings.json)")
         await PipelineRepository().stop_unfinished_runs("the API was restarted while the run was in progress")
     except Exception:
-        logging.exception("MongoDB not reachable – set mongo_db_url in .env")
+        logging.exception("Failed to initialise JSON file storage")
     try:
         await load_saved_env()                      # SonarQube + LLM keys saved in Settings
     except Exception:

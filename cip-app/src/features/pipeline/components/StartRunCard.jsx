@@ -203,26 +203,20 @@ export default function StartRunCard() {
                                 </SelectTrigger>
                                 <SelectContent>
                                     {providers
-                                        .filter((p) => p.configured || p.id === 'none')
+                                        .filter((p) => p.configured)
                                         .map((p) => (
                                             <SelectItem
                                                 key={p.id}
                                                 value={p.id}
-                                                disabled={!p.configured && p.id !== 'none'}
                                             >
                                                 {p.label}
                                                 {p.model ? ` \u00b7 ${p.model}` : ''}
-                                                {!p.configured && p.id !== 'none'
-                                                    ? ' (not configured)'
-                                                    : ''}
                                             </SelectItem>
                                         ))}
                                 </SelectContent>
                             </Select>
                             <p className="text-muted-foreground text-xs">
-                                {selected?.id === 'none'
-                                    ? 'Rules only: no agent reasoning \u2013 the planner uses file detection, failed builds are not investigated and no tests are written.'
-                                    : 'The agents plan the pipeline, investigate failed builds, write tests when a repo has none, triage findings and explain the result.'}
+                                The agents plan the pipeline, investigate failed builds, write tests when a repo has none, triage findings and explain the result.
                             </p>
                         </div>
                     </div>

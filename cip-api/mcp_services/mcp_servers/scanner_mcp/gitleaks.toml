@@ -1,0 +1,68 @@
+# Bundled Gitleaks rules – extends the built-in rules with patterns for
+# generic hardcoded credentials that the defaults intentionally skip.
+# Placed next to scanners.py; copied into the workspace at scan time.
+
+title = "CIP extended Gitleaks config"
+
+# Keep all built-in rules (AWS, GCP, GitHub tokens, private keys, etc.)
+# and add the ones below for generic passwords and secrets in code.
+
+[[rules]]
+id = "cip-hardcoded-password"
+description = "Hardcoded password in source code"
+regex = '''(?i)(password|passwd|pwd)\s*[:=]\s*["'][^"']{3,}["']'''
+keywords = ["password", "passwd", "pwd"]
+tags = ["hardcoded", "credential"]
+
+  [rules.allowlist]
+  regexes = [
+    '''(?i)["'](changeme|example|placeholder|your[_-]?password|TODO|xxx+|test)["']''',
+    '''(?i)\.(md|txt|rst|adoc)$''',
+  ]
+
+[[rules]]
+id = "cip-hardcoded-secret"
+description = "Hardcoded secret or API key in source code"
+regex = '''(?i)(secret|api[_-]?key|apikey|auth[_-]?token|access[_-]?token|private[_-]?key|client[_-]?secret)\s*[:=]\s*["'][^"']{3,}["']'''
+keywords = ["secret", "api_key", "apikey", "auth_token", "access_token", "private_key", "client_secret"]
+tags = ["hardcoded", "credential"]
+
+  [rules.allowlist]
+  regexes = [
+    '''(?i)["'](changeme|example|placeholder|your[_-]?secret|TODO|xxx+|test|process\.env)["']''',
+    '''(?i)\.(md|txt|rst|adoc)$''',
+  ]
+
+[[rules]]
+id = "cip-hardcoded-connection-string"
+description = "Hardcoded database connection string with credentials"
+regex = '''(?i)(mongodb|postgres|mysql|redis|amqp|mssql)://[^:]+:[^@]+@[^\s"']+'''
+keywords = ["mongodb://", "postgres://", "mysql://", "redis://", "amqp://", "mssql://"]
+tags = ["hardcoded", "credential"]
+
+[[rules]]
+id = "cip-bearer-token"
+description = "Hardcoded Bearer token in source code"
+regex = '''(?i)["']Bearer\s+[a-zA-Z0-9_\-\.]{10,}["']'''
+keywords = ["bearer"]
+tags = ["hardcoded", "token"]
+
+[[rules]]
+id = "cip-basic-auth"
+description = "Hardcoded Basic auth header in source code"
+regex = '''(?i)["']Basic\s+[a-zA-Z0-9+/=]{10,}["']'''
+keywords = ["basic"]
+tags = ["hardcoded", "credential"]
+
+[allowlist]
+paths = [
+  '''(^|/)node_modules/''',
+  '''(^|/)\.git/''',
+  '''(^|/)\.venv/''',
+  '''(^|/)venv/''',
+  '''(^|/)dist/''',
+  '''(^|/)build/''',
+  '''\.min\.js$''',
+  '''package-lock\.json$''',
+  '''yarn\.lock$''',
+]

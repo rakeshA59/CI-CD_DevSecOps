@@ -143,26 +143,39 @@ def _components(path: str, ctx: dict, *languages: str) -> list[Path]:
 
 # ------------------------------------------------------------------ SAST
 async def semgrep(path: str, ctx: dict) -> dict:
-    """Semgrep rule sets for the repo's languages; bundled DevOps rules when the registry is unreachable."""
+    """Semgrep rule sets for the repo's languages + bundled DevOps rules (always included)."""
     configs = ctx.get("semgrep_configs") or ["p/default"]
     args = ["scan", "--json", "--quiet", "--metrics=off", "--disable-version-check"]
+    # Always include bundled rules alongside registry configs so custom patterns always run
+    bundled = Path(__file__).with_name("semgrep_rules.yml")
+    rules = Path(path) / ".cip-semgrep-rules.yml"
+    has_bundled = False
+    if bundled.exists():
+        shutil.copy(bundled, rules)
+        has_bundled = True
     for c in configs:
         args += ["--config", c]
-    res = await _tool("semgrep", args + ["{src}"], path, "semgrep/semgrep")
+    if has_bundled:
+        args += ["--config", "{src}/.cip-semgrep-rules.yml"]
+    res = await _tool("semgrep", args + ["--exclude", ".cip-semgrep-rules.yml", "{src}"], path, "semgrep/semgrep")
     if res is None:
+        rules.unlink(missing_ok=True)
         return skipped("semgrep", f"semgrep not installed – {INSTALL_HINT}")
     data = _json(res[1], {})
     note = ""
     if not data.get("results") and (data.get("errors") or not data):
-        rules = Path(path) / ".cip-semgrep-rules.yml"
-        shutil.copy(Path(__file__).with_name("semgrep_rules.yml"), rules)
-        res2 = await _tool("semgrep", ["scan", "--json", "--quiet", "--metrics=off", "--config", "{src}/.cip-semgrep-rules.yml",
-                                       "--exclude", ".cip-semgrep-rules.yml", "{src}"], path, "semgrep/semgrep")
-        rules.unlink(missing_ok=True)
-        data = _json(res2[1], None) if res2 else None
+        # Registry configs failed – retry with bundled rules only
+        if has_bundled:
+            res2 = await _tool("semgrep", ["scan", "--json", "--quiet", "--metrics=off", "--config", "{src}/.cip-semgrep-rules.yml",
+                                           "--exclude", ".cip-semgrep-rules.yml", "{src}"], path, "semgrep/semgrep")
+            data = _json(res2[1], None) if res2 else None
+        else:
+            data = None
         if data is None:
+            rules.unlink(missing_ok=True)
             return result("semgrep", status="error", message=(res[2] or res[1])[-500:] or "semgrep produced no output")
-        note = " (bundled DevOps rules – the Semgrep registry was unreachable)"
+        note = " (bundled DevOps rules only – the Semgrep registry was unreachable)"
+    rules.unlink(missing_ok=True)
     findings = [finding("semgrep", "sast", sev(r["extra"].get("severity"), "LOW"), r["extra"].get("message", ""),
                         file=_rel(r["path"], path), line=r["start"]["line"], rule_id=r["check_id"].split(".")[-1],
                         description=r["extra"].get("message", ""), recommendation=r["extra"].get("fix") or "",
@@ -465,8 +478,16 @@ async def snyk(path: str, ctx: dict) -> dict:
 # ------------------------------------------------------------------ secrets
 async def gitleaks(path: str, ctx: dict) -> dict:
     report = Path(path).resolve() / ".cip-gitleaks.json"
-    res = await _tool("gitleaks", ["detect", "--no-git", "--source", "{src}", "--report-format", "json",
-                                   "--report-path", "{src}/.cip-gitleaks.json", "--exit-code", "0", "--redact"], path, "zricethezav/gitleaks")
+    config = Path(path).resolve() / ".cip-gitleaks.toml"
+    bundled = Path(__file__).with_name("gitleaks.toml")
+    if bundled.exists():
+        shutil.copy(bundled, config)
+    args = ["detect", "--no-git", "--source", "{src}", "--report-format", "json",
+            "--report-path", "{src}/.cip-gitleaks.json", "--exit-code", "0", "--redact"]
+    if config.exists():
+        args += ["--config", "{src}/.cip-gitleaks.toml"]
+    res = await _tool("gitleaks", args, path, "zricethezav/gitleaks")
+    config.unlink(missing_ok=True)
     if res is None:
         return skipped("gitleaks", f"gitleaks not installed – {INSTALL_HINT}")
     try:
