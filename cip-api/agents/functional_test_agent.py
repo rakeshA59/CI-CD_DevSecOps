@@ -89,6 +89,7 @@ class FunctionalTestAgent:
             gate = functional_gate([], False, blocked="no service is running in dev – see the deploy step")
             await emit(task_id, self.node_name, StreamStatus.SKIPPED, gate["blocked"])
             return {"functional": {"cases": []}, "gates": {"functional": gate}, "step_index": state["step_index"] + 1,
+                    "stopped_at": "functional tests – no service running",
                     "steps": {"functional": step_record("functional", "Functional tests", "functional tests", "blocked", gate["blocked"])}}
         await emit(task_id, self.node_name, StreamStatus.START, f"Testing {len(up)} running service(s)")
         cases: list[dict] = []

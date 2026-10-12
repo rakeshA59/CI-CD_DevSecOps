@@ -2,13 +2,13 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
-import { ArrowUpRight, LayoutDashboard, RefreshCw } from 'lucide-react';
+import { ArrowUpRight, LayoutDashboard, RefreshCw, Square } from 'lucide-react';
 import { cn } from '@/core/lib/utils';
 import { Button } from '@/shared/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/shared/ui/table';
 import StatusBadge from '@/shared/components/StatusBadge';
-import { getDashboard } from '@/features/pipeline/services/PipelineService';
+import { getDashboard, stopPipeline } from '@/features/pipeline/services/PipelineService';
 
 const SOLID = {
     passed: 'bg-emerald-500 border-emerald-500',
@@ -66,6 +66,7 @@ function Tile({ label, value, sub, tone }) {
 export default function DashboardPage() {
     const navigate = useNavigate();
     const [data, setData] = useState(null);
+    const [stoppingId, setStoppingId] = useState(null);
     const load = () =>
         getDashboard()
             .then(setData)
@@ -73,6 +74,22 @@ export default function DashboardPage() {
     useEffect(() => {
         load();
     }, []);
+    const canStop = (r) => r.active || r.status === 'RUNNING' || String(r.status).startsWith('WAITING');
+    const onStop = async (e, taskId) => {
+        e.stopPropagation();
+        if (!window.confirm('Stop this pipeline? The current step is ended and its containers are removed.'))
+            return;
+        setStoppingId(taskId);
+        try {
+            await stopPipeline(taskId);
+            toast.success('Pipeline stopped');
+            await load();
+        } catch (err) {
+            toast.error(err?.response?.data?.detail || err.message);
+        } finally {
+            setStoppingId(null);
+        }
+    };
     const t = data?.totals || {};
     const runs = data?.runs || [];
     return (
@@ -141,6 +158,7 @@ export default function DashboardPage() {
                                 ))}
                                 <TableHead>Tests</TableHead>
                                 <TableHead>Crit / High</TableHead>
+                                <TableHead className="w-10"></TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -236,12 +254,26 @@ export default function DashboardPage() {
                                             ? `${r.findings_by_severity.CRITICAL} / ${r.findings_by_severity.HIGH}`
                                             : '–'}
                                     </TableCell>
+                                    <TableCell>
+                                        {canStop(r) && (
+                                            <Button
+                                                size="sm"
+                                                variant="destructive"
+                                                className="gap-1 px-2 py-1 text-xs"
+                                                onClick={(e) => onStop(e, r.task_id)}
+                                                disabled={stoppingId === r.task_id}
+                                            >
+                                                <Square className="size-3 fill-current" />
+                                                {stoppingId === r.task_id ? '…' : 'Stop'}
+                                            </Button>
+                                        )}
+                                    </TableCell>
                                 </TableRow>
                             ))}
                             {runs.length === 0 && (
                                 <TableRow>
                                     <TableCell
-                                        colSpan={STAGES.length + 8}
+                                        colSpan={STAGES.length + 9}
                                         className="text-muted-foreground text-center"
                                     >
                                         No runs yet.

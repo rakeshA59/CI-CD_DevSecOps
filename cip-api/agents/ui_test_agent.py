@@ -455,7 +455,9 @@ class UITestAgent:
 
         if not running:
             why = "nothing is running in dev – see the deploy step"
-            return await finish("blocked", why, [], ui_gate([], blocked=why))
+            result = await finish("blocked", why, [], ui_gate([], blocked=why))
+            result["stopped_at"] = "UI tests – no service running"
+            return result
         if not up:
             return await finish("skipped", "SKIPPED – API only: no user-facing UI (Swagger / ReDoc pages are not a UI)", [], None)
         try:

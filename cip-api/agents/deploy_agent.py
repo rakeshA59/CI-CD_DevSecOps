@@ -61,26 +61,30 @@ class DeployAgent:
             msg = f"nothing to deploy – no image was built ({reasons})"
             await emit(task_id, self.node_name, StreamStatus.SKIPPED, msg)
             return {self.key: {"services": []}, "step_index": state["step_index"] + 1,
+                    "stopped_at": "deploy – no images were built",
                     "steps": {self.step_id: step_record(self.step_id, self.title, "deploy", "blocked", msg)}}
         await emit(task_id, self.node_name, StreamStatus.START, f"Deploying {len(images)} service(s) to the {self.env} environment")
         prefix = "cip" if self.env == "dev" else f"cip-{self.env}"
         network, docker, services = f"{prefix}-{task_id[-12:].lower().strip('-')}", docker_client(), []
         for name, image in images.items():
+            port = image.get("port", 8080)
             await emit(task_id, self.node_name, StreamStatus.COMMAND, f"$ docker run -d{' --restart unless-stopped' if self.env != 'dev' else ''} --network {network} "
-                       f"-p 127.0.0.1::{image['port']} {image['image']}")
+                       f"-p 127.0.0.1::{port} {image['image']}")
             res = await docker.call_tool("docker_run", {"image": image["image"], "name": f"{network}-{name}", "network": network,
-                                                        "port": image["port"], "alias": name, "keep": self.env != "dev"})
+                                                        "port": port, "alias": name, "keep": self.env != "dev"})
             services.append({"component": name, "image": image["image"], **res})
             await emit(task_id, self.node_name, StreamStatus.PROGRESS, f"{name}: {res.get('url') or '-'} → {res['status']} ({res.get('message')})")
         healed, notes, lanes = await self._heal(state, services, images, network, docker)
         await self._gateway(state, services, images, network, docker)
         ok = all(s["status"] == "passed" for s in services)
+        all_failed = all(s["status"] != "passed" for s in services)
         failed = [f"{network}-{s['component']}" for s in services if s["status"] != "passed"]
         if failed and self.env != "dev":                  # a UAT app that never came up would restart forever – remove it
             await docker.call_tool("docker_remove", {"names": failed})
         msg = ", ".join(f"{s['component']} {s.get('url', '')} {s['status']}" for s in services)
         await emit(task_id, self.node_name, StreamStatus.END if ok else StreamStatus.ERROR, msg)
         return {self.key: {"network": network, "services": services}, "step_index": state["step_index"] + 1,
+                **({"stopped_at": "deploy – all services failed to start"} if all_failed else {}),
                 **({"lanes": lanes} if lanes else {}),
                 "steps": {self.step_id: step_record(self.step_id, self.title, "deploy", "passed" if ok else "failed", msg,
                                                     items=services, item_type="services", started=t0, explanation=notes.strip(),

@@ -95,6 +95,7 @@ class ContainerAgent:
             result["container_gate"] = container_gate({}, [], False, blocked=msg)
             await emit(task_id, node, StreamStatus.SKIPPED, msg, parent="component_lanes")
             steps[node] = step_record(node, "Docker image", "containerize", "skipped", msg, name, started=t1)
+            result["execution_failed"] = True
             return {"result": result, "steps": steps}
         folder = Path(state["workspace"]) / comp["path"]
         source, port = "repository", comp.get("port") or 8080
@@ -117,6 +118,7 @@ class ContainerAgent:
             if not content:
                 msg = f"no Dockerfile and no template for {comp['language']} – add a Dockerfile to the repository"
                 result["container_gate"] = container_gate({}, [], False, blocked=msg)
+                result["execution_failed"] = True
                 steps[node] = step_record(node, "Docker image", "containerize", "skipped", msg, name, started=t1)
                 return {"result": result, "steps": steps}
             (folder / "Dockerfile").write_text(content, encoding="utf-8")
@@ -181,6 +183,8 @@ class ContainerAgent:
             heal += f"\nRESULT: {before} → {after} CVEs after the rebuild"
             await emit(task_id, node, StreamStatus.PROGRESS, f"rebuilt and re-scanned: {before} → {after}")
         attempt += cve_try
+        if not image["built"]:
+            result["execution_failed"] = True
         result.update(image=image, image_scan=scan, container_gate=gate)
         msg = (f"{tag} ({image.get('size_mb')} MB) · Dockerfile {source} · scan: {scan.get('message', scan['status'])}"
                if image["built"] else f"docker build failed: {image.get('log', '')[-500:]}")

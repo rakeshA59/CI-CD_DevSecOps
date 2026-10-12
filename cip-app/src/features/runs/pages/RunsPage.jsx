@@ -2,23 +2,45 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
-import { History } from 'lucide-react';
+import { History, Square } from 'lucide-react';
 
 const when = (d) => (d ? format(new Date(d), 'dd MMM, HH:mm:ss') : '–');
 import { Card, CardContent, CardHeader, CardTitle } from '@/shared/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/shared/ui/table';
+import { Button } from '@/shared/ui/button';
 import StatusBadge from '@/shared/components/StatusBadge';
 import { listRuns } from '../services/RunsService';
+import { stopPipeline } from '@/features/pipeline/services/PipelineService';
 
 export default function RunsPage() {
     const navigate = useNavigate();
     const [runs, setRuns] = useState([]);
+    const [stoppingId, setStoppingId] = useState(null);
 
-    useEffect(() => {
+    const load = () =>
         listRuns()
             .then(setRuns)
             .catch((e) => toast.error(e.message));
-    }, []);
+
+    useEffect(() => { load(); }, []);
+
+    const onStop = async (e, taskId) => {
+        e.stopPropagation();
+        if (!window.confirm('Stop this pipeline? The current step is ended and its containers are removed.'))
+            return;
+        setStoppingId(taskId);
+        try {
+            await stopPipeline(taskId);
+            toast.success('Pipeline stopped');
+            await load();
+        } catch (err) {
+            toast.error(err?.response?.data?.detail || err.message);
+        } finally {
+            setStoppingId(null);
+        }
+    };
+
+    const canStop = (r) => r.active || r.status === 'RUNNING' || String(r.status).startsWith('WAITING');
 
     return (
         <Card className="w-full">
@@ -39,6 +61,7 @@ export default function RunsPage() {
                             <TableHead>End time</TableHead>
                             <TableHead>Duration</TableHead>
                             <TableHead>LLM</TableHead>
+                            <TableHead className="w-10"></TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -85,12 +108,26 @@ export default function RunsPage() {
                                     {r.duration_s ? `${r.duration_s}s` : r.active ? 'running' : ''}
                                 </TableCell>
                                 <TableCell className="text-xs">{r.provider}</TableCell>
+                                <TableCell>
+                                    {canStop(r) && (
+                                        <Button
+                                            size="sm"
+                                            variant="destructive"
+                                            className="gap-1 px-2 py-1 text-xs"
+                                            onClick={(e) => onStop(e, r.task_id)}
+                                            disabled={stoppingId === r.task_id}
+                                        >
+                                            <Square className="size-3 fill-current" />
+                                            {stoppingId === r.task_id ? 'Stopping' : 'Stop'}
+                                        </Button>
+                                    )}
+                                </TableCell>
                             </TableRow>
                         ))}
                         {runs.length === 0 && (
                             <TableRow>
                                 <TableCell
-                                    colSpan={8}
+                                    colSpan={9}
                                     className="text-muted-foreground text-center"
                                 >
                                     No runs yet.

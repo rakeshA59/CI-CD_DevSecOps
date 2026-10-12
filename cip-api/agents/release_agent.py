@@ -35,22 +35,26 @@ class ReleaseAgent:
         if not reg["running"]:
             msg = f"local registry could not be started: {reg['message']}"
             await emit(task_id, self.node_name, StreamStatus.ERROR, msg)
-            return {**nxt, "steps": {"release": step_record("release", "Release to registry", "release", "failed", msg)}}
+            return {**nxt, "stopped_at": "release – registry not running",
+                    "steps": {"release": step_record("release", "Release to registry", "release", "failed", msg)}}
         repo = re.sub(r"[^a-z0-9._-]", "-", (state.get("repo") or "app").lower())
         released, pushed, lanes_update = {}, [], {}
         for name, image in images.items():
-            await emit(task_id, self.node_name, StreamStatus.COMMAND, f"$ docker push {reg['registry']}/{repo}/{name}")
+            safe_name = re.sub(r"[^a-z0-9._-]", "-", name.lower())
+            await emit(task_id, self.node_name, StreamStatus.COMMAND, f"$ docker push {reg['registry']}/{repo}/{safe_name}")
             res = await docker.call_tool("docker_push", {"image": image["image"], "registry": reg["registry"],
-                                                         "repository": f"{repo}/{name.lower()}"})
+                                                         "repository": f"{repo}/{safe_name}"})
             pushed.append({"component": name, "status": "passed" if res["pushed"] else "failed", "url": res["image"],
                            "message": res["digest"] or res["log"][-300:], "image": image["image"]})
             if res["pushed"]:
                 released[name] = res["image"]
                 lanes_update[name] = {**lanes[name], "image": {**image, "image": res["image"], "local_tag": image["image"]}}
         ok = len(released) == len(images)
+        none_pushed = not released
         msg = ", ".join(f"{p['component']} → {p['url']}" for p in pushed if p["status"] == "passed") or "push failed"
         await emit(task_id, self.node_name, StreamStatus.END if ok else StreamStatus.ERROR, msg)
         return {**nxt, "release": released, "lanes": lanes_update,
+                **({"stopped_at": "release – all images failed to push to the registry"} if none_pushed else {}),
                 "steps": {"release": step_record("release", "Release to registry", "release", "passed" if ok else "failed", msg,
                                                  items=pushed, item_type="services", started=t0,
                                                  summary={"registry": reg["registry"], "via": docker.last_transport})}}

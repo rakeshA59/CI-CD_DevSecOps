@@ -17,6 +17,7 @@ async def _docker(*args: str, timeout: int = 2400) -> tuple[int, str]:
         out, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except asyncio.TimeoutError:
         proc.kill()
+        #await proc.communicate()
         return 124, f"timeout after {timeout}s"
     except asyncio.CancelledError:          # the run was stopped – do not leave the docker command running
         proc.kill()
@@ -158,6 +159,7 @@ async def restore_uat_apps() -> list[str]:
 async def running_apps() -> dict[str, list[str]]:
     """Running containers → their published URLs ({name: ["http://127.0.0.1:32772", …]}); {} when Docker is down."""
     code, out = await _docker("ps", "--format", "{{.Names}}\t{{.Ports}}", timeout=20)
+    #code, out = await _docker("ps", "--format", "{{.Names}}\t{{.Ports}}", timeout=3)
     if code != 0:
         return {}
     apps = {}

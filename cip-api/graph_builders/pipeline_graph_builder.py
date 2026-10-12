@@ -61,7 +61,19 @@ async def component_lane(lane: dict, config: RunnableConfig) -> dict:
 
 
 def lanes_done(state: PipelineState) -> dict:
-    """After all lanes: collect their gates and stop on a failed one (unless continue-on-fail)."""
+    """After all lanes: collect their gates and stop on a failed one (unless continue-on-fail).
+    Execution failures (build crashed, Docker down, no Dockerfile) always stop – they bypass continue-on-fail."""
+    # --- execution failures: always stop, regardless of continue_on_fail ---
+    exec_failed = [name for name, r in (state.get("lanes") or {}).items() if r.get("execution_failed")]
+    if exec_failed:
+        gates = {}
+        for name, r in (state.get("lanes") or {}).items():
+            for key in ("test_gate", "container_gate"):
+                if r.get(key):
+                    gates[f"{key.split('_')[0]}:{name}"] = r[key]
+        return {"gates": gates, "step_index": state["step_index"] + 1,
+                "stopped_at": f"{exec_failed[0]} – stage execution failed"}
+    # --- gate threshold failures: respect continue_on_fail ---
     gates = {}
     for name, r in (state.get("lanes") or {}).items():
         for key in ("test_gate", "container_gate"):
