@@ -18,6 +18,8 @@ tags = ["hardcoded", "credential"]
   regexes = [
     '''(?i)["'](changeme|example|placeholder|your[_-]?password|TODO|xxx+|test)["']''',
     '''(?i)\.(md|txt|rst|adoc)$''',
+    '''(?i)["'][^"']*(is required|must be at least|cannot be empty|is too short|is too long|is invalid|characters|enter your|enter a valid|at least \d)''',
+    '''(?i)errors\.\w*(?:password|passwd|pwd)\s*=''',
   ]
 
 [[rules]]
