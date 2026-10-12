@@ -1,8 +1,6 @@
 .env
 runs/
 stream_events.db*
-data/runs.json
-data/settings.json
 __pycache__/
 .cip-venv/
 .venv/

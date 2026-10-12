@@ -1,0 +1,6 @@
+{
+  "scanner:sonarqube": {
+    "sonar_host_url": "http://localhost:9000",
+    "sonar_token": "gAAAAABqxXIGIJgjutlTBcqecDVNIbGRBa07LTpuBw7WpzdJq3AP97NrrNiqBAE0ay9CCU7znRf5pWSZxoYb-0nHW0wDBLSHOGms8rf8WG-x_zH8EJqfpnPlv3ZFWsB1TDBpEqBF4jLg"
+  }
+}
