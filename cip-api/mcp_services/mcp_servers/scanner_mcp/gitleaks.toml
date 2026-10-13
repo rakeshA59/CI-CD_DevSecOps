@@ -20,6 +20,8 @@ tags = ["hardcoded", "credential"]
     '''(?i)\.(md|txt|rst|adoc)$''',
     '''(?i)["'][^"']*(is required|must be at least|cannot be empty|is too short|is too long|is invalid|characters|enter your|enter a valid|at least \d)''',
     '''(?i)errors\.\w*(?:password|passwd|pwd)\s*=''',
+    # Demo / sample passwords that are obviously not real credentials
+    '''(?i)["'](demo[_-]password|local[_-]password|fake[_-]password|dummy[_-]password|test[_-]password[_-]?\d*|admin)["']''',
   ]
 
 [[rules]]
@@ -67,4 +69,12 @@ paths = [
   '''\.min\.js$''',
   '''package-lock\.json$''',
   '''yarn\.lock$''',
+  # Test files – passwords here are synthetic test data, not real credentials
+  '''\.test\.[jt]sx?$''',
+  '''\.spec\.[jt]sx?$''',
+  '''__tests__/''',
+  '''(^|/)test/''',
+  '''(^|/)tests/''',
+  '''(^|/)fixtures\.[jt]sx?$''',
+  '''(^|/)data/fixtures\.[jt]sx?$''',
 ]

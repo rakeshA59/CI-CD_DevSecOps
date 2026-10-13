@@ -5,8 +5,19 @@ All functions are async and return plain dicts.
 
 import asyncio
 import shutil
+import socket
 import time
 import urllib.request
+
+
+def _host_ip() -> str:
+    """Best-effort: the machine's LAN / public IP (what other devices can reach), else 127.0.0.1."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))          # doesn't send anything – just picks the outgoing interface
+            return s.getsockname()[0]
+    except Exception:  # noqa: BLE001
+        return "127.0.0.1"
 
 
 async def _docker(*args: str, timeout: int = 2400) -> tuple[int, str]:
@@ -62,15 +73,18 @@ async def docker_run(image: str, name: str, network: str, port: int, env: dict |
     code, out = await _docker(*args, image, timeout=300)
     if code != 0:
         return {"status": "failed", "message": out[-600:]}
-    url = ""
+    url, check_url = "", ""
     if port:
         _, mapped = await _docker("port", name, str(port), timeout=30)
         host_port = mapped.strip().splitlines()[0].rsplit(":", 1)[-1] if mapped.strip() else ""
-        url = f"http://{host}:{host_port}" if host_port.isdigit() else ""      # not published = container exited / wrong port
+        if host_port.isdigit():
+            check_url = f"http://127.0.0.1:{host_port}"                        # health check always via localhost
+            display_host = _host_ip() if host == "0.0.0.0" else host           # resolve 0.0.0.0 → actual IP
+            url = f"http://{display_host}:{host_port}"                         # user-facing URL (clickable)
     deadline, status = time.time() + 90, None
-    while url and time.time() < deadline:
+    while check_url and time.time() < deadline:
         try:
-            with urllib.request.urlopen(url, timeout=5) as r:      # noqa: S310 – local container
+            with urllib.request.urlopen(check_url, timeout=5) as r:      # noqa: S310 – local container
                 status = r.status
         except urllib.error.HTTPError as e:
             status = e.code
