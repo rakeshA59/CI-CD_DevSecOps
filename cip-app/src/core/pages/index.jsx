@@ -15,7 +15,7 @@ export default function AppRoutes() {
                 <Route path="/" element={<PipelinePage />} />
                 <Route path="/dashboard" element={<DashboardPage />} />
                 <Route path="/runs" element={<RunsPage />} />
-                <Route path="/runs/:taskId" element={<PipelinePage />} />
+                <Route path="/pipeline/:taskId" element={<PipelinePage />} />
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
             </Route>

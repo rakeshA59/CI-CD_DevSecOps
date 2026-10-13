@@ -1,6 +1,8 @@
 import { format } from 'date-fns';
 import {
+    AlertTriangle,
     Bot,
+    CheckCircle2,
     Download,
     FileText,
     GitBranch,
@@ -100,6 +102,24 @@ export default function RunHeader() {
                             </a>
                         </Button>
                     )}
+                    {!live && run.tests_summary?.total > 0 && (
+                        <span className="flex items-center gap-1.5 text-sm">
+                            <CheckCircle2 className="size-4 text-emerald-500" />
+                            <span className="text-muted-foreground">Tests</span>
+                            <span className="font-semibold">
+                                {run.tests_summary.passed}/{run.tests_summary.total}
+                            </span>
+                        </span>
+                    )}
+                    {!live && run.findings_by_severity && (
+                        <span className="flex items-center gap-1.5 text-sm">
+                            <AlertTriangle className="size-4 text-red-500" />
+                            <span className="text-muted-foreground">Critical / High</span>
+                            <span className="font-semibold text-red-500">
+                                {run.findings_by_severity.CRITICAL ?? 0} / {run.findings_by_severity.HIGH ?? 0}
+                            </span>
+                        </span>
+                    )}
                 </div>
                 {!live && run.app_urls?.length > 0 && (
                     <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -115,17 +135,6 @@ export default function RunHeader() {
                             >
                                 {a.name} {a.url}
                             </a>
-                        ))}
-                    </div>
-                )}
-                {!live && (
-                    <div className="flex flex-wrap gap-2">
-                        {Object.entries(run.gates || {}).map(([name, g]) => (
-                            <StatusBadge
-                                key={name}
-                                status={g.blocked ? 'blocked' : g.passed ? 'passed' : 'failed'}
-                                label={`${name} gate: ${g.blocked ? 'BLOCKED' : g.passed ? 'PASS' : 'FAIL'}`}
-                            />
                         ))}
                     </div>
                 )}

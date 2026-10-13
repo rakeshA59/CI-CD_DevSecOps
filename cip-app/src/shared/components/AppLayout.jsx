@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
     History,
     LayoutDashboard,
@@ -48,6 +48,7 @@ export default function AppLayout() {
     const { theme, setTheme } = useTheme();
     const [collapsed, toggle] = useCollapsed();
     const navigate = useNavigate();
+    const location = useLocation();
     const session = getSession();
     const handleLogout = () => { logout(); navigate('/login', { replace: true }); };
     return (
@@ -87,24 +88,31 @@ export default function AppLayout() {
                     </button>
                 </div>
                 <nav className="flex flex-col gap-1">
-                    {NAV.map(({ to, label, icon: Icon, end }) => (
-                        <NavLink
-                            key={to}
-                            to={to}
-                            end={end}
-                            title={collapsed ? label : undefined}
-                            className={({ isActive }) =>
-                                cn(
-                                    'text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground flex items-center gap-2 rounded-md py-2 text-sm font-medium',
-                                    collapsed ? 'justify-center px-0' : 'px-3',
-                                    isActive && 'bg-sidebar-accent text-sidebar-accent-foreground'
-                                )
-                            }
-                        >
-                            <Icon className="size-4 shrink-0" />
-                            {!collapsed && label}
-                        </NavLink>
-                    ))}
+                    {NAV.map(({ to, label, icon: Icon, end }) => {
+                        // Viewing a specific run (/pipeline/:taskId) highlights "Recent runs"
+                        const viewingRun = location.pathname.match(/^\/pipeline\/.+/);
+                        const runsActive = to === '/runs' && viewingRun;
+                        return (
+                            <NavLink
+                                key={to}
+                                to={to}
+                                end={end}
+                                title={collapsed ? label : undefined}
+                                className={({ isActive }) =>
+                                    cn(
+                                        'text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground flex items-center gap-2 rounded-md py-2 text-sm font-medium',
+                                        collapsed ? 'justify-center px-0' : 'px-3',
+                                        (isActive && !(to === '/' && viewingRun)) || runsActive
+                                            ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                                            : ''
+                                    )
+                                }
+                            >
+                                <Icon className="size-4 shrink-0" />
+                                {!collapsed && label}
+                            </NavLink>
+                        );
+                    })}
                 </nav>
                 <div className="text-muted-foreground mt-auto px-2 text-xs">
                     {!collapsed && 'LangGraph agents · MCP tools'}

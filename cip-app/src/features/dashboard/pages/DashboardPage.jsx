@@ -101,7 +101,7 @@ export default function DashboardPage() {
                     <RefreshCw className="size-4" />
                 </Button>
             </div>
-            <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-6">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 <Tile
                     label="Runs"
                     value={t.runs ?? '–'}
@@ -118,20 +118,6 @@ export default function DashboardPage() {
                     value={t.waiting ?? '–'}
                     sub="questionnaire / approval"
                     tone="text-amber-500"
-                />
-                <Tile
-                    label="Tests passed"
-                    value={t.tests_total ? `${t.tests_passed}/${t.tests_total}` : '–'}
-                />
-                <Tile
-                    label="Open critical / high"
-                    value={
-                        t.open_findings_latest
-                            ? `${t.open_findings_latest.CRITICAL} / ${t.open_findings_latest.HIGH}`
-                            : '–'
-                    }
-                    sub="latest run per repository"
-                    tone={t.open_findings_latest?.CRITICAL ? 'text-red-500' : ''}
                 />
             </div>
             <Card className="gap-3 py-4">
@@ -166,7 +152,7 @@ export default function DashboardPage() {
                                 <TableRow
                                     key={r.task_id}
                                     className="cursor-pointer"
-                                    onClick={() => navigate(`/runs/${r.task_id}`)}
+                                    onClick={() => navigate(`/pipeline/${r.task_id}`)}
                                 >
                                     <TableCell className="text-sm font-medium">
                                         {r.pipeline_name || '–'}
@@ -206,7 +192,7 @@ export default function DashboardPage() {
                                         <div className="flex items-center gap-1 font-medium">
                                             {r.app_name || r.repo}
                                             <a
-                                                href={`/runs/${r.task_id}`}
+                                                href={`/pipeline/${r.task_id}`}
                                                 target="_blank"
                                                 rel="noreferrer"
                                                 title="Open this run in a new tab"

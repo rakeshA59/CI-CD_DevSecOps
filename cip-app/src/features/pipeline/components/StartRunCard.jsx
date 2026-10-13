@@ -76,7 +76,7 @@ export default function StartRunCard() {
                 'guided'
             );
             toast.success('Pipeline started');
-            navigate(`/runs/${res.task_id}`);
+            navigate(`/pipeline/${res.task_id}`);
         } catch (e) {
             toast.error(e.message);
         } finally {

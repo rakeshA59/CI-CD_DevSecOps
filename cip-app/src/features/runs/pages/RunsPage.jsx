@@ -69,7 +69,7 @@ export default function RunsPage() {
                             <TableRow
                                 key={r.task_id}
                                 className="cursor-pointer"
-                                onClick={() => navigate(`/runs/${r.task_id}`)}
+                                onClick={() => navigate(`/pipeline/${r.task_id}`)}
                             >
                                 <TableCell className="font-medium">
                                     {r.pipeline_name || '–'}
