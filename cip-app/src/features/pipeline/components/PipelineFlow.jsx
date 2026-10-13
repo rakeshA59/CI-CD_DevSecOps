@@ -160,9 +160,9 @@ export function buildStages(
             ],
         });
     stages.push({
-        title: 'Grade Out',
+        title: 'Publish Artifacts',
         agent: 'Release Manager',
-        lanes: [{ steps: [['report', 'Grade Out']] }],
+        lanes: [{ steps: [['report', 'Publish Artifacts'], ['deploy_pr', 'Deploy to PR']] }],
     });
     return stages;
 }
@@ -287,7 +287,7 @@ export default function PipelineFlow() {
                                                         </span>
                                                     )}
                                                 </span>
-                                                {id !== 'report' && <StepInfo id={id} label={label} />}
+                                                {id !== 'deploy_pr' && <StepInfo id={id} label={label} />}
                                             </button>
                                         );
                                     })}

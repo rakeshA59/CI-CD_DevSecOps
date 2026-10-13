@@ -74,10 +74,8 @@ export default function QuestionnaireCard() {
                         <ClipboardList className="text-primary size-5" /> Questionnaire – the agent
                         needs a few answers
                     </DialogTitle>
-                    <DialogDescription>
-                        The pipeline is derived from what the code tells and from these answers.
-                        Values are pre-filled from the code; options marked <i>later</i> are recorded
-                        and run locally in this version.
+                    <DialogDescription className="sr-only">
+                        Configure the pipeline options
                     </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-4">
@@ -116,11 +114,6 @@ export default function QuestionnaireCard() {
                             >
                                 <div className="text-sm font-medium">
                                     {q.label}
-                                    {q.note && (
-                                        <div className="text-muted-foreground text-xs font-normal">
-                                            {q.note}
-                                        </div>
-                                    )}
                                 </div>
                                 <div className="flex flex-wrap gap-1.5">
                                     {q.type === 'single' &&

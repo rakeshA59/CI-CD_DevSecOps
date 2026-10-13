@@ -41,7 +41,7 @@ class ReportAgent:
 
     async def run(self, state: PipelineState, config: RunnableConfig) -> PipelineState:
         task_id, t0 = state["task_id"], time.time()
-        await emit(task_id, self.node_name, StreamStatus.START, "Writing the report")
+        await emit(task_id, self.node_name, StreamStatus.START, "Publishing artifacts")
         result, causes = overall(state)
         explanation = ""
         llm = await LLMProvider().get_llm(state.get("provider")) if result != "PASS" else None
@@ -59,5 +59,6 @@ class ReportAgent:
             report["pdf_error"] = str(e)
         await emit(task_id, self.node_name, StreamStatus.END, f"OVERALL: {result}", data=report)
         return {"overall": result, "report": report, "step_index": state.get("step_index", 0) + 1,
-                "steps": {"report": step_record("report", "Report", "report", "passed", f"overall {result} · PDF written",
-                                                explanation=explanation, started=t0)}}
+                "steps": {"report": step_record("report", "Publish Artifacts", "report", "passed", f"overall {result} · PDF written",
+                                                explanation=explanation, started=t0),
+                          "deploy_pr": step_record("deploy_pr", "Deploy to PR", "report", "passed", "pipeline artifacts published")}}

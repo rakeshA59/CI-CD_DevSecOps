@@ -68,10 +68,11 @@ class DeployAgent:
         network, docker, services = f"{prefix}-{task_id[-12:].lower().strip('-')}", docker_client(), []
         for name, image in images.items():
             port = image.get("port", 8080)
+            bind = "0.0.0.0" if self.env != "dev" else ""
             await emit(task_id, self.node_name, StreamStatus.COMMAND, f"$ docker run -d{' --restart unless-stopped' if self.env != 'dev' else ''} --network {network} "
-                       f"-p 127.0.0.1::{port} {image['image']}")
+                       f"-p {bind or '127.0.0.1'}::{port} {image['image']}")
             res = await docker.call_tool("docker_run", {"image": image["image"], "name": f"{network}-{name}", "network": network,
-                                                        "port": port, "alias": name, "keep": self.env != "dev"})
+                                                        "port": port, "alias": name, "keep": self.env != "dev", "bind": bind})
             services.append({"component": name, "image": image["image"], **res})
             await emit(task_id, self.node_name, StreamStatus.PROGRESS, f"{name}: {res.get('url') or '-'} → {res['status']} ({res.get('message')})")
         healed, notes, lanes = await self._heal(state, services, images, network, docker)
@@ -115,7 +116,8 @@ class DeployAgent:
                    f"$ docker run gateway: {', '.join(paths)} → {back['component']}, everything else → {front['component']}")
         built = await docker.call_tool("docker_build", {"context": str(folder), "tag": f"cip-gateway:{tag}"})
         res = await docker.call_tool("docker_run", {"image": f"cip-gateway:{tag}", "name": f"{network}-app", "network": network,
-                                                    "port": 8080, "alias": "app", "keep": self.env != "dev"}) \
+                                                    "port": 8080, "alias": "app", "keep": self.env != "dev",
+                                                    "bind": "0.0.0.0" if self.env != "dev" else ""}) \
             if built.get("built") else {"status": "failed", "message": built.get("log", "")[-300:]}
         if res["status"] == "passed":
             front.update(direct_url=front["url"], url=res["url"], gateway=f"{', '.join(paths)} → {back['component']}")
@@ -165,7 +167,8 @@ class DeployAgent:
                 image["port"] = exposed_port(folder, image["port"])
                 await docker.call_tool("docker_remove", {"names": [f"{network}-{name}"]})
                 res = await docker.call_tool("docker_run", {"image": image["image"], "name": f"{network}-{name}", "network": network,
-                                                            "port": image["port"], "alias": name, "keep": self.env != "dev"})
+                                                            "port": image["port"], "alias": name, "keep": self.env != "dev",
+                                                            "bind": "0.0.0.0" if self.env != "dev" else ""})
                 services[i] = {"component": name, "image": image["image"], **res}
                 notes += f"\nRESULT: redeployed → {res['status']} ({res.get('message')}) {res.get('url', '')}"
                 await emit(state["task_id"], self.node_name, StreamStatus.PROGRESS, f"{name}: redeployed → {res['status']} ({res.get('message')})")

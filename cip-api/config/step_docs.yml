@@ -149,12 +149,18 @@ steps:
     expected: An approval.
     checks: –
   report:
-    what: Decides the overall result from the gates, explains the root cause and writes the PDF report.
+    what: Publishes the pipeline artifacts – the PDF report with the overall result, gate verdicts, findings and the LLM explanation.
     why: One clear verdict with the reasons, for the team and the audit trail.
     tool: Gate results + LLM explanation (when selected) + PDF writer
     how: FAIL if any gate failed or a step failed / was blocked, INCOMPLETE if steps were skipped, else PASS.
     expected: PASS.
     checks: Every gate and step status.
+  deploy_pr:
+    what: Final grade-out – marks the pipeline run as complete and the artifacts as published.
+    why: A clean finish line so the dashboard and notifications reflect the final state.
+    tool: Pipeline orchestrator
+    how: Automatically passes once the report is written.
+    expected: Passed.
 
 scanners:
   semgrep:

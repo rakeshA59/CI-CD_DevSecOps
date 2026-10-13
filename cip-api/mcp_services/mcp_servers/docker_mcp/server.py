@@ -27,10 +27,10 @@ async def docker_build(context: str, tag: str, dockerfile: str = "Dockerfile") -
 
 @mcp.tool()
 async def docker_run(image: str, name: str, network: str, port: int, env: dict | None = None, alias: str = "",
-                     keep: bool = False) -> dict:
+                     keep: bool = False, bind: str = "") -> dict:
     """Run an image on a private network, publish its port and wait until it answers HTTP.
-    keep=true restarts it whenever Docker restarts (UAT)."""
-    return await docker_ops.docker_run(image, name, network, port, env, alias, keep)
+    keep=true restarts it whenever Docker restarts (UAT). bind='0.0.0.0' for external access (UAT on a server)."""
+    return await docker_ops.docker_run(image, name, network, port, env, alias, keep, bind)
 
 
 @mcp.tool()

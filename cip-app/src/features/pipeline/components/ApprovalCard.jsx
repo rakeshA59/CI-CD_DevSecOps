@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import { Check, ShieldQuestion, X } from 'lucide-react';
+import { getSession } from '@/core/lib/auth';
 import { Button } from '@/shared/ui/button';
 import {
     Dialog,
@@ -64,7 +65,8 @@ function SecuritySummary({ sm }) {
  *  the security reports (after the scans, both flows) or the UAT deploy (guided flow). */
 export default function ApprovalCard() {
     const { run, resume } = usePipelineStore();
-    const [by, setBy] = useState('');
+    const session = getSession();
+    const [by, setBy] = useState(session?.username || '');
     const [comment, setComment] = useState('');
     const [sending, setSending] = useState(false);
     const type = run?.pending?.type;

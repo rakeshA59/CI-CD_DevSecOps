@@ -17,7 +17,6 @@ async def _docker(*args: str, timeout: int = 2400) -> tuple[int, str]:
         out, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except asyncio.TimeoutError:
         proc.kill()
-        #await proc.communicate()
         return 124, f"timeout after {timeout}s"
     except asyncio.CancelledError:          # the run was stopped – do not leave the docker command running
         proc.kill()
@@ -47,9 +46,10 @@ async def docker_build(context: str, tag: str, dockerfile: str = "Dockerfile") -
 
 
 async def docker_run(image: str, name: str, network: str, port: int, env: dict | None = None, alias: str = "",
-                     keep: bool = False) -> dict:
-    """Run a container on a private network, publish its port on 127.0.0.1 and wait until it answers HTTP.
-    keep = restart it whenever Docker / the PC restarts (until it is stopped by hand) – for UAT."""
+                     keep: bool = False, bind: str = "") -> dict:
+    """Run a container on a private network, publish its port and wait until it answers HTTP.
+    keep = restart it whenever Docker / the PC restarts (until it is stopped by hand) – for UAT.
+    bind = address to bind on: '0.0.0.0' for external access (UAT on a server), '127.0.0.1' for local only (default)."""
     await _docker("network", "create", network, timeout=30)
     args = ["run", "-d", "--name", name, "--network", network, "--network-alias", alias or name]
     if keep:
@@ -57,7 +57,8 @@ async def docker_run(image: str, name: str, network: str, port: int, env: dict |
     for k, v in (env or {}).items():
         args += ["-e", f"{k}={v}"]
     if port:
-        args += ["-p", f"127.0.0.1::{port}"]
+        host = bind or "127.0.0.1"
+        args += ["-p", f"{host}::{port}"]
     code, out = await _docker(*args, image, timeout=300)
     if code != 0:
         return {"status": "failed", "message": out[-600:]}
@@ -65,7 +66,7 @@ async def docker_run(image: str, name: str, network: str, port: int, env: dict |
     if port:
         _, mapped = await _docker("port", name, str(port), timeout=30)
         host_port = mapped.strip().splitlines()[0].rsplit(":", 1)[-1] if mapped.strip() else ""
-        url = f"http://127.0.0.1:{host_port}" if host_port.isdigit() else ""      # not published = container exited / wrong port
+        url = f"http://{host}:{host_port}" if host_port.isdigit() else ""      # not published = container exited / wrong port
     deadline, status = time.time() + 90, None
     while url and time.time() < deadline:
         try:
@@ -159,7 +160,6 @@ async def restore_uat_apps() -> list[str]:
 async def running_apps() -> dict[str, list[str]]:
     """Running containers → their published URLs ({name: ["http://127.0.0.1:32772", …]}); {} when Docker is down."""
     code, out = await _docker("ps", "--format", "{{.Names}}\t{{.Ports}}", timeout=20)
-    #code, out = await _docker("ps", "--format", "{{.Names}}\t{{.Ports}}", timeout=3)
     if code != 0:
         return {}
     apps = {}
