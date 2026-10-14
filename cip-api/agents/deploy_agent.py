@@ -155,7 +155,7 @@ class DeployAgent:
                     "environment variable, missing file in the image, non-root permission problem. Fix the Dockerfile (or a "
                     "deployment config file) so the server listens on 0.0.0.0 on the EXPOSEd port. Do not change application "
                     "logic. Finish with: ROOT CAUSE: … FIX: …",
-                    f"Component {name} in folder {comps.get(name, {}).get('path', '.')}. Expected port: {image['port']}.\n"
+                    f"Component {name} in folder {comps.get(name, {}).get('path', '.')}. Expected port: {image.get('port', 8080)}.\n"
                     f"Deploy result: {services[i].get('message')} (HTTP status {services[i].get('http_status')})\n"
                     f"Container log (end):\n{services[i].get('logs_tail', '')[-5000:]}\n\nDockerfile:\n"
                     f"{(folder / 'Dockerfile').read_text(errors='replace') if (folder / 'Dockerfile').is_file() else '(none)'}",
@@ -164,7 +164,7 @@ class DeployAgent:
                 if not built["built"]:
                     notes += "\n(the fixed Dockerfile did not build: " + built.get("log", "")[-300:] + ")"
                     continue
-                image["port"] = exposed_port(folder, image["port"])
+                image["port"] = exposed_port(folder, image.get("port", 8080))
                 await docker.call_tool("docker_remove", {"names": [f"{network}-{name}"]})
                 res = await docker.call_tool("docker_run", {"image": image["image"], "name": f"{network}-{name}", "network": network,
                                                             "port": image["port"], "alias": name, "keep": self.env != "dev",

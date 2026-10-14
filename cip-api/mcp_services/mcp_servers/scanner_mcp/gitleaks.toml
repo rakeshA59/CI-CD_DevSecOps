@@ -58,6 +58,48 @@ regex = '''(?i)["']Basic\s+[a-zA-Z0-9+/=]{10,}["']'''
 keywords = ["basic"]
 tags = ["hardcoded", "credential"]
 
+[[rules]]
+id = "cip-hardcoded-email-credential"
+description = "Hardcoded email address used as a login credential"
+regex = '''(?i)(e[-_]?mail|user[-_]?name|login[-_]?id|login[-_]?email|default[-_]?email|admin[-_]?email|user[-_]?email|demo[-_]?email)\s*[:=]\s*["'][a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}["']'''
+keywords = ["email", "username", "login", "admin"]
+tags = ["hardcoded", "credential"]
+
+  [rules.allowlist]
+  regexes = [
+    '''(?i)["'][^"']*@(example\.com|test\.com|localhost|example\.org)["']''',
+    '''(?i)\.(md|txt|rst|adoc)$''',
+    # Package metadata / git config – not credentials
+    '''(?i)(author|maintainer|contributor|bugs|homepage|repository)\s*[:=]''',
+  ]
+
+[[rules]]
+id = "cip-hardcoded-username-credential"
+description = "Hardcoded username or login name in source code"
+regex = '''(?i)(user[-_]?name|login[-_]?name|login[-_]?id|default[-_]?user|admin[-_]?user|demo[-_]?user|demo[-_]?login)\s*[:=]\s*["'][^"']{2,}["']'''
+keywords = ["username", "user_name", "login_name", "login_id", "default_user", "admin_user", "demo_user"]
+tags = ["hardcoded", "credential"]
+
+  [rules.allowlist]
+  regexes = [
+    '''(?i)["'](example|placeholder|your[_-]?username|TODO|xxx+)["']''',
+    '''(?i)\.(md|txt|rst|adoc)$''',
+  ]
+
+[[rules]]
+id = "cip-demo-credential-display"
+description = "Demo or default credentials displayed in UI code"
+regex = '''(?i)(demo|default|sample|test)[-_\s]*(credentials?|login|account|user)\s*[:=>\-–]\s*["'`]?[^\s"'`<]{3,}'''
+keywords = ["demo", "default", "sample", "credential", "login", "account"]
+tags = ["hardcoded", "credential"]
+
+  [rules.allowlist]
+  regexes = [
+    '''(?i)\.(md|txt|rst|adoc)$''',
+    # Comments describing what demo credentials ARE (documentation), not the values themselves
+    '''(?i)(//|/\*|#|<!--)\s*(TODO|FIXME|NOTE|WARNING)''',
+  ]
+
 [allowlist]
 paths = [
   '''(^|/)node_modules/''',
