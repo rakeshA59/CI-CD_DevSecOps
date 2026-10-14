@@ -125,8 +125,7 @@ const usePipelineStore = create(
             const { taskId } = get();
             await stopPipeline(taskId);
             closeStream?.();
-            set({ live: false });
-            await get().loadRun(taskId);
+            set({ ...initialState });
         },
 
         addEvent: (event) =>

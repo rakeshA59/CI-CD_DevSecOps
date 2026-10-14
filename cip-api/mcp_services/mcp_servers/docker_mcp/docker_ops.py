@@ -4,6 +4,7 @@ All functions are async and return plain dicts.
 """
 
 import asyncio
+import os
 import shutil
 import socket
 import time
@@ -11,7 +12,11 @@ import urllib.request
 
 
 def _host_ip() -> str:
-    """Best-effort: the machine's LAN / public IP (what other devices can reach), else 127.0.0.1."""
+    """Best-effort: the machine's LAN / public IP (what other devices can reach), else 127.0.0.1.
+    CIP_HOST_IP in .env overrides everything (set it on EC2 to the instance's public IP)."""
+    explicit = os.getenv("CIP_HOST_IP", "").strip()
+    if explicit:
+        return explicit
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
             s.connect(("8.8.8.8", 80))          # doesn't send anything – just picks the outgoing interface
@@ -180,7 +185,8 @@ async def running_apps() -> dict[str, list[str]]:
     for line in out.splitlines():
         name, _, ports = line.partition("\t")
         hosts = [p.split("->")[0] for p in ports.split(", ") if "->" in p and not p.startswith(":")]   # skip the IPv6 copies
-        apps[name] = sorted({"http://" + h.replace("0.0.0.0", "localhost") for h in hosts})
+        ip = _host_ip()
+        apps[name] = sorted({"http://" + h.replace("0.0.0.0", ip).replace("127.0.0.1", ip) for h in hosts})
     return apps
 
 

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
-    History,
+    FileSearch,
     LayoutDashboard,
     LogOut,
     Moon,
@@ -19,7 +19,7 @@ import { Button } from '@/shared/ui/button';
 const NAV = [
     { to: '/', label: 'Pipeline', icon: Workflow, end: true },
     { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { to: '/runs', label: 'Recent runs', icon: History },
+    { to: '/remediation', label: 'Remediation Specs', icon: FileSearch },
     { to: '/settings', label: 'Settings', icon: Settings2 },
 ];
 
@@ -89,9 +89,12 @@ export default function AppLayout() {
                 </div>
                 <nav className="flex flex-col gap-1">
                     {NAV.map(({ to, label, icon: Icon, end }) => {
-                        // Viewing a specific run (/pipeline/:taskId) highlights "Recent runs"
+                        // Viewing a specific run (/pipeline/:taskId) highlights "Dashboard"
                         const viewingRun = location.pathname.match(/^\/pipeline\/.+/);
-                        const runsActive = to === '/runs' && viewingRun;
+                        const dashActive = to === '/dashboard' && viewingRun;
+                        // Viewing a remediation detail (/remediation/:taskId) highlights "Remediation Specs"
+                        const viewingSpec = location.pathname.match(/^\/remediation\/.+/);
+                        const specActive = to === '/remediation' && viewingSpec;
                         return (
                             <NavLink
                                 key={to}
@@ -102,7 +105,7 @@ export default function AppLayout() {
                                     cn(
                                         'text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground flex items-center gap-2 rounded-md py-2 text-sm font-medium',
                                         collapsed ? 'justify-center px-0' : 'px-3',
-                                        (isActive && !(to === '/' && viewingRun)) || runsActive
+                                        (isActive && !(to === '/' && viewingRun)) || dashActive || specActive
                                             ? 'bg-sidebar-accent text-sidebar-accent-foreground'
                                             : ''
                                     )

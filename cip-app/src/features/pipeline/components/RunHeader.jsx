@@ -4,6 +4,7 @@ import {
     Bot,
     CheckCircle2,
     Download,
+    ExternalLink,
     FileText,
     GitBranch,
     Route,
@@ -11,6 +12,7 @@ import {
     Square,
 } from 'lucide-react';
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/shared/ui/button';
 import { Card, CardContent } from '@/shared/ui/card';
 import StatusBadge from '@/shared/components/StatusBadge';
@@ -21,6 +23,7 @@ import usePipelineStore from '../store/usePipelineStore';
 export default function RunHeader() {
     const { run, live, taskId, stop } = usePipelineStore();
     const [stopping, setStopping] = useState(false);
+    const navigate = useNavigate();
     if (!run) return null;
     const canStop = live || run.status === 'RUNNING' || String(run.status).startsWith('WAITING');
     const onStop = async () => {
@@ -33,6 +36,7 @@ export default function RunHeader() {
         setStopping(true);
         try {
             await stop();
+            navigate('/', { replace: true });
         } finally {
             setStopping(false);
         }
@@ -44,7 +48,6 @@ export default function RunHeader() {
         <Card className="gap-3 py-4">
             <CardContent className="space-y-3 px-4">
                 <div className="flex flex-wrap items-center gap-3">
-                    <StatusBadge status={overall} className="px-3 py-1 text-sm" />
                     <h1 className="text-lg font-bold">
                         {run.pipeline_name || run.app_name || run.repo}
                     </h1>
@@ -126,15 +129,11 @@ export default function RunHeader() {
                         <Server className="size-4 text-emerald-500" />
                         <StatusBadge status="passed" label="App running" />
                         {run.app_urls.map((a) => (
-                            <a
-                                key={a.url}
-                                href={a.url}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-primary underline"
-                            >
-                                {a.name} {a.url}
-                            </a>
+                            <Button key={a.url} asChild size="sm" variant="outline" className="gap-1.5">
+                                <a href={a.url} target="_blank" rel="noreferrer">
+                                    <ExternalLink className="size-3.5" /> {a.name || 'UAT App'}
+                                </a>
+                            </Button>
                         ))}
                     </div>
                 )}

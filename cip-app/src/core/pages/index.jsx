@@ -5,6 +5,8 @@ import LoginPage from '@/features/auth/pages/LoginPage';
 import PipelinePage from '@/features/pipeline/pages/PipelinePage';
 import RunsPage from '@/features/runs/pages/RunsPage';
 import DashboardPage from '@/features/dashboard/pages/DashboardPage';
+import RemediationPage from '@/features/remediation/pages/RemediationPage';
+import RemediationDetailPage from '@/features/remediation/pages/RemediationDetailPage';
 import SettingsPage from '@/features/settings/pages/SettingsPage';
 
 export default function AppRoutes() {
@@ -15,6 +17,8 @@ export default function AppRoutes() {
                 <Route path="/" element={<PipelinePage />} />
                 <Route path="/dashboard" element={<DashboardPage />} />
                 <Route path="/runs" element={<RunsPage />} />
+                <Route path="/remediation" element={<RemediationPage />} />
+                <Route path="/remediation/:taskId" element={<RemediationDetailPage />} />
                 <Route path="/pipeline/:taskId" element={<PipelinePage />} />
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="*" element={<Navigate to="/" replace />} />

@@ -59,3 +59,12 @@ export const streamPipelineEvents = (taskId, onEvent, onEnd, after = 0) => {
 };
 
 export const getScanners = () => apiRepository.get('/pipelines/scanners');
+
+export const getRemediation = (taskId) =>
+    apiRepository.get(`/pipelines/${encodeURIComponent(taskId)}/remediation`, { timeout: 300000 });
+
+export const getRemediationHistory = () =>
+    apiRepository.get('/pipelines/remediation-history');
+
+export const getRemediationSaved = (taskId) =>
+    apiRepository.get(`/pipelines/${encodeURIComponent(taskId)}/remediation-saved`);

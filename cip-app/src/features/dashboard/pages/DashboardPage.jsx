@@ -133,15 +133,15 @@ export default function DashboardPage() {
                             <TableRow>
                                 <TableHead>Pipeline</TableHead>
                                 <TableHead>Status</TableHead>
-                                <TableHead>App</TableHead>
-                                <TableHead>Application</TableHead>
-                                <TableHead>Start time</TableHead>
-                                <TableHead>End time</TableHead>
                                 {STAGES.map(([, label]) => (
                                     <TableHead key={label} className="px-1 text-center text-[11px]">
                                         {label}
                                     </TableHead>
                                 ))}
+                                <TableHead>App</TableHead>
+                                <TableHead>Application</TableHead>
+                                <TableHead>Start time</TableHead>
+                                <TableHead>End time</TableHead>
                                 <TableHead>Tests</TableHead>
                                 <TableHead>Crit / High</TableHead>
                                 <TableHead className="w-10"></TableHead>
@@ -171,6 +171,22 @@ export default function DashboardPage() {
                                             />
                                         </span>
                                     </TableCell>
+                                    {STAGES.map(([key, label]) => {
+                                        const st = r.stage_summary?.[key];
+                                        return (
+                                            <TableCell key={key} className="px-1 text-center">
+                                                <span
+                                                    title={`${label}: ${st || 'not run'}`}
+                                                    className={cn(
+                                                        'inline-block size-4 rounded-sm border',
+                                                        st
+                                                            ? SOLID[st] || 'bg-muted'
+                                                            : 'border-dashed opacity-40'
+                                                    )}
+                                                />
+                                            </TableCell>
+                                        );
+                                    })}
                                     <TableCell className="text-xs">
                                         {r.app_urls?.length ? (
                                             <a
@@ -214,22 +230,6 @@ export default function DashboardPage() {
                                             ? '–'
                                             : when(r.finished_at)}
                                     </TableCell>
-                                    {STAGES.map(([key, label]) => {
-                                        const st = r.stage_summary?.[key];
-                                        return (
-                                            <TableCell key={key} className="px-1 text-center">
-                                                <span
-                                                    title={`${label}: ${st || 'not run'}`}
-                                                    className={cn(
-                                                        'inline-block size-4 rounded-sm border',
-                                                        st
-                                                            ? SOLID[st] || 'bg-muted'
-                                                            : 'border-dashed opacity-40'
-                                                    )}
-                                                />
-                                            </TableCell>
-                                        );
-                                    })}
                                     <TableCell className="text-xs">
                                         {r.tests_summary?.total
                                             ? `${r.tests_summary.passed}/${r.tests_summary.total}`
