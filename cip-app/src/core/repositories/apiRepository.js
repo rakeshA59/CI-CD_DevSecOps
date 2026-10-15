@@ -19,7 +19,7 @@ http.interceptors.response.use(
 );
 
 const apiRepository = {
-    get: async (url, params) => (await http.get(url, { params })).data,
+    get: async (url, params, config = {}) => (await http.get(url, { params, ...config })).data,
     post: async (url, body) => (await http.post(url, body)).data,
     put: async (url, body) => (await http.put(url, body)).data,
     delete: async (url) => (await http.delete(url)).data,
