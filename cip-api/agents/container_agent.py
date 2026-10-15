@@ -29,7 +29,8 @@ TEMPLATES = {                                     # {app} = the backend sub-fold
     "Python": "FROM python:3.12-slim\nWORKDIR /app\nCOPY . .\nRUN pip install --no-cache-dir -r {app}requirements.txt\n"
               "RUN useradd -m app\nUSER app\nWORKDIR /app/{app}\nEXPOSE {port}\n"
               "CMD [\"python\", \"-m\", \"uvicorn\", \"main:app\", \"--host\", \"0.0.0.0\", \"--port\", \"{port}\"]\n",
-    "JavaScript": "FROM nginxinc/nginx-unprivileged:1.27-alpine\nCOPY {app}dist/ /usr/share/nginx/html/\nEXPOSE 8080\n",
+    "JavaScript": "FROM nginxinc/nginx-unprivileged:1.27-alpine\nCOPY nginx.conf /etc/nginx/conf.d/default.conf\n"
+                  "COPY {app}dist/ /usr/share/nginx/html/\nEXPOSE 8080\n",
     "Java": "FROM eclipse-temurin:17-jre-alpine\nWORKDIR /app\nCOPY {app}target/*.jar app.jar\nRUN adduser -D app\nUSER app\n"
             "EXPOSE 8080\nCMD [\"java\", \"-jar\", \"app.jar\"]\n",
     "Go": "FROM golang:1.22 AS build\nWORKDIR /src\nCOPY . .\nWORKDIR /src/{app}\nRUN CGO_ENABLED=0 go build -o /app .\n"
@@ -37,6 +38,15 @@ TEMPLATES = {                                     # {app} = the backend sub-fold
 }
 TEMPLATES["TypeScript"] = TEMPLATES["JavaScript"]
 TEMPLATES["HTML"] = "FROM nginxinc/nginx-unprivileged:1.27-alpine\nCOPY . /usr/share/nginx/html/\nEXPOSE 8080\n"   # static site
+
+# Frameworks that produce static HTML/JS/CSS (SPAs) – always serve with nginx, never node
+_SPA_HINTS = frozenset({"react", "vue", "angular", "svelte", "vite", "preact", "solid", "webpack", "parcel"})
+
+_NGINX_CONF = ("server {\n    listen 8080;\n    server_name _;\n"
+               "    root /usr/share/nginx/html;\n    index index.html;\n"
+               "    location / {\n        try_files $uri $uri/ /index.html;\n    }\n"
+               "    location /assets/ {\n        expires 1y;\n"
+               "        add_header Cache-Control \"public, immutable\";\n    }\n}\n")
 
 
 def exposed_port(folder: Path, default: int) -> int:
@@ -100,12 +110,16 @@ class ContainerAgent:
         folder = Path(state["workspace"]) / comp["path"]
         source, port = "repository", comp.get("port") or 8080
         if not (folder / "Dockerfile").is_file():
-            is_static_frontend = comp.get("kind") == "web-frontend"
+            is_static_frontend = comp.get("kind") == "web-frontend" or (
+                comp.get("kind") == "web-app"
+                and comp.get("language") in ("JavaScript", "TypeScript")
+                and any(h in (comp.get("framework") or "").lower() for h in _SPA_HINTS)
+            )
             llm = await LLMProvider().get_llm(state.get("provider"))
             if is_static_frontend:
                 # Static SPAs (React/Vue/Angular + Vite/Webpack) produce only HTML/JS/CSS – always use
-                # nginx to serve them. The LLM often gets this wrong (uses node to serve static files,
-                # which exits immediately), so we use the proven template and skip the LLM for this case.
+                # nginx to serve them. The LLM often gets this wrong (uses heredoc nginx configs that
+                # produce empty files, or node to serve static files which exits immediately).
                 df = None
             else:
                 df = await ask_structured(llm, Dockerfile, "You write production Dockerfiles for CI. The build output already exists "
@@ -122,6 +136,8 @@ class ContainerAgent:
                 steps[node] = step_record(node, "Docker image", "containerize", "skipped", msg, name, started=t1)
                 return {"result": result, "steps": steps}
             (folder / "Dockerfile").write_text(content, encoding="utf-8")
+            if is_static_frontend and not df:          # write explicit nginx config so CVE healing can't break it
+                (folder / "nginx.conf").write_text(_NGINX_CONF, encoding="utf-8")
         else:
             port = int((re.findall(r"^EXPOSE\s+(\d+)", (folder / "Dockerfile").read_text(errors="replace"), re.M) or [port])[0])
         tag = f"cip-{re.sub(r'[^a-z0-9-]', '-', name.lower())}:{re.sub(r'[^a-z0-9]', '', task_id.lower())[-16:]}"
@@ -164,8 +180,9 @@ class ContainerAgent:
                 "in OS or runtime packages that already have fixed versions. Change ONLY the Dockerfile so the final image "
                 "contains the fixed versions: move the base images to a newer patch / minor tag of the same family (e.g. a "
                 "newer alpine / slim / nginx tag) and/or upgrade OS packages in the final stage (apk upgrade --no-cache, or "
-                "apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*). Keep the same EXPOSE port, user and "
-                "start command. Do not change application code. Finish with: ROOT CAUSE: … FIX: …",
+                "apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*). Keep the same EXPOSE port, user, "
+                "start command and all COPY instructions (especially config files like nginx.conf). "
+                "Do not change application code. Finish with: ROOT CAUSE: … FIX: …",
                 f"Component {name} in folder {comp['path']}.\nDockerfile:\n{backup}\n\nFixable CVEs (package installed → fixed):\n{listing}",
                 task_id, node, max_steps=12)
             rebuilt = await docker.call_tool("docker_build", {"context": str(folder), "tag": tag})
